@@ -9,10 +9,6 @@ import utils
 sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=conf.CLIENT_ID,
                                                            client_secret=conf.CLIENT_SECRET))
 
-# results = sp.search(q='himmelreich', limit=20)
-# for idx, track in enumerate(results['tracks']['items']):
-#     print(idx, track['name'])
-
 results = sp.playlist_items('1OqSCV8pzfAZ6zsAjEsYOM')
 
 tbl = Texttable(max_width=1024)
@@ -25,7 +21,7 @@ for idx, track in enumerate(results['items']):
     t = track['track']
     
     names = [artist['name'] for artist in t['artists']]
-    artists = ' '.join(names)
+    artists = ', '.join(names)
 
 
     album = t['album']['name']
