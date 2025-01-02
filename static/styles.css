@@ -1,0 +1,99 @@
+body {
+    background-color: #121212;
+    color: #FFFFFF;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  .container {
+    width: auto; /* Ensure container can expand */
+    max-width: 100%; /* Ensure container does not exceed the viewport width */
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #1e1e1e;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    overflow: auto; /* Handle overflow content */
+  }
+  h1 {
+    color: #1DB954;
+  }
+  h2 {
+    color: #1DB954;
+    font-size: 48px; /* Set font size for playlist title */
+  }
+  form {
+    margin-bottom: 20px;
+  }
+  .form-group {
+    margin-bottom: 15px;
+  }
+  .form-control {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background-color: #333;
+    color: #FFF;
+    box-sizing: border-box; /* Ensure input respects container padding */
+  }
+  .btn-primary {
+    background-color: #1DB954;
+    border: none;
+    padding: 10px 20px;
+    color: #FFF;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .btn-primary:hover {
+    background-color: #1ed760;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    table-layout: auto; /* Ensure table layout is set to auto */
+  }
+  th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+    min-width: 100px; /* Add minimum width to table cells */
+  }
+  th {
+    background-color: #1DB954;
+    color: #FFF;
+  }
+  tr:hover {
+    background-color: #333;
+  }
+  a {
+    color: #1DB954;
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  .spinner {
+    display: none;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top: 4px solid #1DB954;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+    margin-left: 10px;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+  .song-title {
+    font-size: 16px;
+  }
+  .song-info {
+    font-size: 14px;
+  }

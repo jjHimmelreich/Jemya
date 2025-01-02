@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Spotify Playlist Tracks</title>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+        
+  </head>
+  <body>
+    <div class="container">
+      <h1>Submit Spotify Playlist URL</h1>
+      
+      <form method="post" action="/" onsubmit="showSpinner()">
+        <div class="form-group">
+          <label for="playlist_url">Spotify Playlist URL</label>
+          <input type="text" class="form-control" id="playlist_url" name="playlist_url" value="{{ playlist_url if playlist_url else '' }}" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit</button>
+        <div class="spinner" id="spinner"></div>
+      </form>
+      
+      <script>
+        function showSpinner() {
+          document.getElementById('spinner').style.display = 'inline-block';
+        }
+      </script>
+
+
+      {% if tracks %}
+      <h2><a href="{{ playlist_url }}" target="_blank">{{ playlist_name }}</a></h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Time</th>
+            <th>Duration</th>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Album</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for track in tracks %}
+          <tr>
+            <td class="song-info">{{ track.idx + 1 }}</td>
+            <td class="nowrap song-info">{{ track.duration_from_start }}</td>
+            <td class="nowrap song-info">{{ track.duration }}</td>
+            <td class="nowrap song-title"><a href="{{ track.url }}" target="_blank">{{ track.name }}</a></td>
+            <td class="song-info">{{ track.author }}</td>
+            <td class="nowrap song-info">{{ track.album }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </body>
+</html>
