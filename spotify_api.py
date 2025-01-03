@@ -8,6 +8,12 @@ pattern = r'playlist/([a-zA-Z0-9]+)'
 import conf
 import utils
 
+def init():
+    #spotify_client = spotipy.Spotify(auth_manager=spotipy.SpotifyOAuth(client_id=conf.CLIENT_ID, client_secret=conf.CLIENT_SECRET))
+    spotify_client = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=conf.CLIENT_ID, client_secret=conf.CLIENT_SECRET))
+
+    return spotify_client
+
 #https://open.spotify.com/playlist/5gmv8rah3E1YMMT1tGgUW0?si=99f17988b5df4353
 def process_playlist(playlist_link):
 
@@ -23,8 +29,8 @@ def process_playlist(playlist_link):
     if match:
         playlist_id = match.group(1)
 
-    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=conf.CLIENT_ID,
-                                                            client_secret=conf.CLIENT_SECRET))
+    #sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=conf.CLIENT_ID, client_secret=conf.CLIENT_SECRET))
+    sp = init()
 
     playlist = sp.playlist(playlist_id)
 
@@ -51,8 +57,10 @@ def process_playlist(playlist_link):
         pop = t['popularity']
 
         id = t['id']
-        track_url = f'https://open.spotify.com/track/{id}'
-        
+        track_url = t['external_urls']['spotify']
+
+        album_image = t['album']['images'][0]['url']  #640, 300, 64
+
         t_duration_ms = t['duration_ms']
 
         ttl_duration_ms = t_duration_ms + ttl_duration_ms
@@ -64,10 +72,23 @@ def process_playlist(playlist_link):
                 "url":track_url,
                 "name": name,
                 "album": album,
+                "album_image_url": album_image,
                 "author": artists,
                 "duration": utils.milliseconds_to_human_readable(t_duration_ms),
-                "duration_from_start": utils.milliseconds_to_human_readable(ttl_duration_ms)
+                "duration_from_start": utils.milliseconds_to_human_readable(ttl_duration_ms-t_duration_ms)
             }
         )
 
     return playlist_name,track_objects
+
+def play_track(track_id):
+    # sp = init()
+    # sp.start_playback()
+    print('play track')
+    return
+
+def pause_track(track_id):
+    # sp = init()
+    # sp.pause_playback()
+    print('pause track')
+    return

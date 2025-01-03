@@ -1,60 +1,102 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Spotify Playlist Tracks</title>
-    
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-        
-  </head>
-  <body>
-    <div class="container">
-      <h1>Submit Spotify Playlist URL</h1>
-      
-      <form method="post" action="/" onsubmit="showSpinner()">
-        <div class="form-group">
-          <label for="playlist_url">Spotify Playlist URL</label>
-          <input type="text" class="form-control" id="playlist_url" name="playlist_url" value="{{ playlist_url if playlist_url else '' }}" required>
-        </div>
-        <button type="submit" class="btn btn-primary">Submit</button>
-        <div class="spinner" id="spinner"></div>
-      </form>
-      
-      <script>
-        function showSpinner() {
-          document.getElementById('spinner').style.display = 'inline-block';
-        }
-      </script>
 
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta http-equiv="Content-Language" content="en">
+  <title>Spotify Playlist Tracks</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
 
-      {% if tracks %}
-      <h2><a href="{{ playlist_url }}" target="_blank">{{ playlist_name }}</a></h2>
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Time</th>
-            <th>Duration</th>
-            <th>Title</th>
-            <th>Artist</th>
-            <th>Album</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for track in tracks %}
-          <tr>
-            <td class="song-info">{{ track.idx + 1 }}</td>
-            <td class="nowrap song-info">{{ track.duration_from_start }}</td>
-            <td class="nowrap song-info">{{ track.duration }}</td>
-            <td class="nowrap song-title"><a href="{{ track.url }}" target="_blank">{{ track.name }}</a></td>
-            <td class="song-info">{{ track.author }}</td>
-            <td class="nowrap song-info">{{ track.album }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-    </div>
-  </body>
+<body>
+  <div class="container">
+    <h1 class="no-print">Submit Spotify Playlist URL</h1>
+    <form method="post" action="/" onsubmit="showSpinner()" class="no-print">
+      <div class="form-group">
+        <label for="playlist_url">Spotify Playlist URL</label>
+        <input type="text" class="form-control" id="playlist_url" name="playlist_url"
+          value="{{ playlist_url if playlist_url else '' }}" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Submit</button>
+      <div class="spinner" id="spinner"></div>
+    </form>
+    {% if playlist_name and tracks %}
+    <h2><a href="{{ playlist_url }}" target="_blank">{{ playlist_name }}</a></h2>
+    <span class="song-info print-only">{{ playlist_url }}</span>
+    <table>
+      <thead>
+        <tr>
+          <th class="no-print"></th>
+          <th>#</th>
+          <th class="nowrap align-right">Time</th>
+          <th class="nowrap align-right">Duration</th>
+          <th>Title</th>
+          <th class="print-only">Author</th>
+          <th>Album</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for track in tracks %}
+        <tr>
+          <td class="play-icon" data-playing="false" onclick="togglePlayPause(this, '{{ track.id }}')">&#9654;</td>
+          <td class="song-info">{{ loop.index }}</td>
+          <td class="nowrap song-info align-right">{{ track.duration_from_start }}</td>
+          <td class="nowrap song-info align-right">{{ track.duration }}</td>
+          <td class="nowrap song-title">
+            <img src="{{ track.album_image_url }}" alt="Album Image" class="album-image">
+            <div class="track-info">
+              <a href="{{ track.url }}" target="_blank">{{ track.name }}</a>
+              <div class="author no-print">{{ track.author }}</div>
+            </div>
+          </td>
+          <td class="song-info print-only">{{ track.author }}</td>
+          <td class="nowrap song-info">{{ track.album }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  <script>
+    function showSpinner() {
+      document.getElementById('spinner').style.display = 'inline-block';
+    }
+    function togglePlayPause(element, trackId) {
+      const isPlaying = element.getAttribute('data-playing') === 'true'; // Check if the icon is currently a pause icon
+      const url = isPlaying ? '/pause' : '/play';
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ track_id: trackId }),
+      })
+        .then(response => {
+          if (response.ok) {
+            // Toggle the icon
+            if (isPlaying) {
+              element.innerHTML = '&#9654;';
+              element.setAttribute('data-playing', 'false');
+            } else {
+              // Set all play icons to play
+              document.querySelectorAll('.play-icon').forEach(icon => {
+                icon.innerHTML = '&#9654;';
+                icon.setAttribute('data-playing', 'false');
+              });
+              // Set the clicked icon to pause
+              element.innerHTML = '&#10074;&#10074;';
+              element.setAttribute('data-playing', 'true');
+            }
+          } else {
+            console.error('Failed to toggle play/pause');
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+        });
+    }
+  </script>
+</body>
+
 </html>
