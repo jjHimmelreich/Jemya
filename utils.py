@@ -9,19 +9,19 @@ def milliseconds_to_human_readable(ms):
     human_readable = []
 
     if days > 0:
-        human_readable.append(f"{days}d")
+        human_readable.append(f"{days}:")
 
     if hours > 0:
-        human_readable.append(f'{str(hours).zfill(2)}h')
+        human_readable.append(f'{str(hours).zfill(2)}:')
     else:
         human_readable.append('   ')
 
     if minutes > 0:
-        human_readable.append(f'{str(minutes).zfill(2)}m')
+        human_readable.append(f'{str(minutes).zfill(2)}:')
     else:
-        human_readable.append('00m')
+        human_readable.append('00:')
     
-    human_readable.append(f'{str(seconds).zfill(2)}s')
+    human_readable.append(f'{str(seconds).zfill(2)}')
 
-    return ' '.join(human_readable)
+    return ''.join(human_readable)
 

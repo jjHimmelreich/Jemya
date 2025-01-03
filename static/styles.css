@@ -1,99 +1,194 @@
 body {
-    background-color: #121212;
-    color: #FFFFFF;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    margin: 0;
-    padding: 0;
+  background-color: #121212;
+  color: #b3b3b3; /* Update default font color */
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh; /* Ensure body takes at least the full viewport height */
+}
+.container {
+  width: auto; /* Ensure container can expand */
+  max-width: 100%; /* Ensure container does not exceed the viewport width */
+  padding: 20px;
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  overflow: auto; /* Handle overflow content */
+}
+h1 {
+  color: #1db954;
+  margin-bottom: 10px; /* Reduce space below the main heading */
+  text-align: center; /* Center the heading text */
+}
+h2 {
+  color: #1db954;
+  font-size: 48px; /* Set font size for playlist title */
+  margin-bottom: 10px; /* Reduce space below the playlist title */
+}
+form {
+  margin-bottom: 10px; /* Reduce space below the form */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.form-group {
+  margin-bottom: 10px; /* Reduce space below the form group */
+  width: 100%;
+}
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 16px;
+  color: #b3b3b3;
+}
+.form-control {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background-color: #333;
+  color: #fff;
+  box-sizing: border-box; /* Ensure input respects container padding */
+}
+.btn-primary {
+  background-color: #1db954;
+  border: none;
+  padding: 10px 20px;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background-color: #1ed760;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px; /* Reduce space above the table */
+  table-layout: auto; /* Ensure table layout is set to auto */
+}
+th,
+td {
+  padding: 8px; /* Reduce padding in table cells */
+  text-align: left;
+  border-bottom: 1px solid #333;
+  min-width: 50px; /* Add minimum width to table cells */
+}
+th {
+  background-color: #1db954;
+  color: #fff;
+}
+tr:hover {
+  background-color: #333;
+}
+a {
+  color: #1db954;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.spinner {
+  display: none;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 4px solid #1db954;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  margin-left: 10px;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.nowrap {
+  white-space: nowrap;
+}
+.song-title {
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+}
+.song-info {
+  font-size: 14px;
+}
+.album-image {
+  width: 40px;
+  height: 40px;
+  margin-right: 10px;
+  border-radius: 4px;
+}
+.track-info {
+  display: flex;
+  flex-direction: column;
+}
+.author {
+  font-size: 14px;
+  color: #b3b3b3;
+}
+.play-icon {
+  cursor: pointer;
+  color: #1db954;
+  font-size: 10px; /* Reduce font size to half */
+}
+.play-icon:hover {
+  color: #1ed760;
+}
+.align-right {
+  text-align: right;
+}
+.print-only {
+  display: none; /* Hide by default */
+}
+/* Print-specific styles */
+@media print {
+  body {
+    background-color: #ffffff;
+    color: #000000;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   }
   .container {
-    width: auto; /* Ensure container can expand */
-    max-width: 100%; /* Ensure container does not exceed the viewport width */
-    margin: 50px auto;
-    padding: 20px;
-    background-color: #1e1e1e;
-    border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    overflow: auto; /* Handle overflow content */
+    background-color: #ffffff;
+    box-shadow: none;
+    padding: 0;
   }
-  h1 {
-    color: #1DB954;
-  }
+  h1,
   h2 {
-    color: #1DB954;
-    font-size: 48px; /* Set font size for playlist title */
-  }
-  form {
-    margin-bottom: 20px;
-  }
-  .form-group {
-    margin-bottom: 15px;
-  }
-  .form-control {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #333;
-    border-radius: 4px;
-    background-color: #333;
-    color: #FFF;
-    box-sizing: border-box; /* Ensure input respects container padding */
-  }
-  .btn-primary {
-    background-color: #1DB954;
-    border: none;
-    padding: 10px 20px;
-    color: #FFF;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .btn-primary:hover {
-    background-color: #1ed760;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-    table-layout: auto; /* Ensure table layout is set to auto */
-  }
-  th, td {
-    padding: 12px;
-    text-align: left;
-    border-bottom: 1px solid #333;
-    min-width: 100px; /* Add minimum width to table cells */
+    color: #000000;
   }
   th {
-    background-color: #1DB954;
-    color: #FFF;
+    background-color: #dddddd;
+    color: #000000;
   }
   tr:hover {
-    background-color: #333;
+    background-color: #ffffff;
   }
-  a {
-    color: #1DB954;
-    text-decoration: none;
+  .play-icon,
+  .spinner,
+  .no-print,
+  .album-image {
+    display: none; /* Hide play icons, spinner, form, and album images */
   }
-  a:hover {
-    text-decoration: underline;
-  }
-  .spinner {
-    display: none;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top: 4px solid #1DB954;
-    width: 20px;
-    height: 20px;
-    animation: spin 1s linear infinite;
-    margin-left: 10px;
-  }
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-  .nowrap {
-    white-space: nowrap;
+  .print-only {
+    display: table-cell; /* Show elements with the print-only class as table cells */
   }
   .song-title {
-    font-size: 16px;
-  }
-  .song-info {
     font-size: 14px;
   }
+  .song-info {
+    font-size: 12px;
+  }
+  th,
+  td {
+    border-bottom: none; /* Remove borders from table cells */
+    padding: 4px; /* Make table rows more compact */
+  }
+}
