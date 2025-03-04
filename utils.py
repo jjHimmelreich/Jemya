@@ -1,4 +1,3 @@
-import datetime
 
 def milliseconds_to_human_readable(ms):
     seconds = (ms / 1000) % 60
