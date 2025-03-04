@@ -104,12 +104,43 @@ def process_playlist(playlist_link):
         )
     return playlist_name, track_objects
 
+def clear_playlist(playlist_id, token_info):
+    sp = init(token_info)
 
-def create_playlist(playlist_name, generated_tracks, token_info):
+    # Get the current tracks in the playlist
+    results = sp.playlist_tracks(playlist_id)
+    tracks = results['items']
+    
+    while results['next']:
+        results = sp.next(results)
+        tracks.extend(results['items'])
+    
+    # Collect all track URIs
+    track_uris = [track['track']['uri'] for track in tracks]
+    
+    # Remove tracks in batches of 100 (Spotify API limit)
+    for i in range(0, len(track_uris), 100):
+        sp.playlist_remove_all_occurrences_of_items(playlist_id, track_uris[i:i+100])
+
+def get_playlist_name(playlist_id, token_info):
+    sp = init(token_info)
+    
+    # Get the playlist details
+    playlist = sp.playlist(playlist_id)
+    # Return the playlist name
+    return playlist['name']
+
+
+def create_playlist(playlist_id, generated_tracks, token_info):
     sp = init(token_info)
     user_id = sp.current_user()['id']
-    playlist = sp.user_playlist_create(
-        user=user_id, name=playlist_name, public=True)
+
+    # Clear playlist
+    clear_playlist(playlist_id=playlist_id, token_info=token_info)
+
+    playlist_name = get_playlist_name(playlist_id=playlist_id, token_info=token_info)
+
+    playlist = sp.user_playlist_create(user=user_id, name=playlist_name, public=True)
     
     playlist_id = playlist['id']
     track_uris = []

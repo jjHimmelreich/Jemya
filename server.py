@@ -126,13 +126,13 @@ def send_message():
     for message in conversation:
         context += f"\n{message['role'].capitalize()}: {message['content']}"
     # Call the OpenAI API to get the response
-    response, proposal = openai_api.chat_with_playlist(context)
+    response = openai_api.chat_with_playlist(context)
     # Append the new bot response to the conversation
     conversation.append({"role": "bot", "content": response})
     # Save the updated conversation
     with open(filepath, 'w') as file:
         json.dump(conversation, file)
-    return jsonify(response=response, conversation_name=conversation_name, proposal=proposal)
+    return jsonify(response=response, conversation_name=conversation_name)
 
 
 @app.route('/apply_proposal', methods=['POST'])
@@ -140,27 +140,12 @@ def apply_proposal():
     proposal = request.form['proposal']
     conversation_name = request.form.get('conversation_name')
     token_info = session.get('token_info')
-    # Fetch the current state of the playlist
-    tracks, total_tracks, total_duration = spotify_api.get_playlist_tracks(
-        conversation_name, token_info)
     # Call the OpenAI API to generate the playlist based on the proposal
     generated_playlist = openai_api.generate_playlist(proposal)
     # Create a playlist on Spotify with the generated tracks
     playlist_url = spotify_api.create_playlist(
         conversation_name, generated_playlist, token_info)
-    return jsonify(success=True, playlist_url=playlist_url, tracks=tracks, total_tracks=total_tracks, total_duration=total_duration)
-
-
-@app.route('/load_conversation', methods=['GET'])
-def load_conversation():
-    conversation_name = request.args.get('conversation_name')
-    filepath = os.path.join(CONVERSATIONS_DIR, f"{conversation_name}.json")
-    if os.path.exists(filepath):
-        with open(filepath, 'r') as file:
-            conversation = json.load(file)
-        return jsonify(conversation=conversation)
-    else:
-        return jsonify(conversation=[])
+    return jsonify(success=True, playlist_url=playlist_url)
 
 
 if __name__ == '__main__':

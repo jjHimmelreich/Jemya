@@ -1,20 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <title>Spotify Playlist Generator</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
-
 <body>
     <nav class="top-nav">
         {% if session.token_info %}
-        <span>Welcome, {{ session.user_name }}</span>
-        <a href="{{ url_for('logout') }}" class="logout-button">Log Off</a>
+            <span>Welcome, {{ session.user_name }}</span>
+            <a href="{{ url_for('logout') }}" class="logout-button">Log Off</a>
         {% else %}
-        <a href="{{ url_for('login') }}" class="login-button">Login to Spotify</a>
+            <a href="{{ url_for('login') }}" class="login-button">Login to Spotify</a>
         {% endif %}
     </nav>
     <div class="container">
@@ -41,30 +39,32 @@
                 <textarea id="prompt" placeholder="Type your message here..."></textarea>
                 <button type="submit">Send</button>
             </form>
-            <button class="apply-button" id="apply-button">Apply</button>
+            <div id="apply-container">
+                <button class="apply-button" id="apply-button">Apply</button>
+            </div>
         </div>
     </div>
     <script>
-        $(document).ready(function () {
+        $(document).ready(function() {
             // Fetch and display playlists
             fetchPlaylists();
             // Handle form submission
-            $('#prompt-form').submit(function (event) {
+            $('#prompt-form').submit(function(event) {
                 event.preventDefault();
                 sendMessage();
             });
             // Handle Enter key press in textarea
-            $('#prompt').keypress(function (event) {
+            $('#prompt').keypress(function(event) {
                 if (event.which === 13 && !event.shiftKey) {
                     event.preventDefault();
                     $('#prompt-form').submit();
                 }
             });
             // Handle playlist selection
-            $('#playlist-dropdown').change(function () {
+            $('#playlist-dropdown').change(function() {
                 var playlistId = $(this).val();
                 if (playlistId !== 'create-new') {
-                    fetchPlaylistTracks(playlistId, function (playlistContext) {
+                    fetchPlaylistTracks(playlistId, function(playlistContext) {
                         loadConversation(playlistId, playlistContext);
                     });
                 } else {
@@ -73,24 +73,23 @@
                     $('#total-duration').text('0:00');
                     $('#playlist-context').val('');
                     $('#conversation').empty();
-                    $('#apply-button').hide();
                 }
             });
-        });
+});
         function fetchPlaylists() {
-            $.get('/playlists', function (data) {
+            $.get('/playlists', function(data) {
                 $('#playlist-dropdown').empty();
                 $('#playlist-dropdown').append('<option value="create-new">Create New</option>');
-                data.playlists.forEach(function (playlist) {
+                data.playlists.forEach(function(playlist) {
                     $('#playlist-dropdown').append('<option value="' + playlist.id + '">' + playlist.name + '</option>');
                 });
             });
         }
         function fetchPlaylistTracks(playlistId, callback) {
-            $.get('/playlist_tracks/' + playlistId, function (data) {
+            $.get('/playlist_tracks/' + playlistId, function(data) {
                 $('#playlist-tracks').empty();
                 var playlistContext = '';
-                data.tracks.forEach(function (track) {
+                data.tracks.forEach(function(track) {
                     $('#playlist-tracks').append(
                         '<div class="track">' +
                         '<div class="track-number">' + track.idx + '.</div>' +
@@ -112,19 +111,18 @@
             });
         }
         function loadConversation(playlistId, playlistContext) {
-            $.get('/load_conversation', { conversation_name: playlistId }, function (data) {
+            $.get('/load_conversation', { conversation_name: playlistId }, function(data) {
                 $('#conversation').empty();
                 if (data.conversation.length === 0) {
                     $('#conversation').append('<div class="message bot">No previous conversation found for this playlist.</div>');
                 } else {
-                    data.conversation.forEach(function (message) {
+                    data.conversation.forEach(function(message) {
                         var messageClass = message.role === 'user' ? 'message user' : 'message bot';
                         $('#conversation').append('<div class="' + messageClass + '"><pre>' + message.content + '</pre></div>');
                     });
                 }
                 // Update the context with the current playlist content
                 $('#playlist-context').val(playlistContext);
-                $('#apply-button').show();
             });
         }
         function sendMessage() {
@@ -132,24 +130,22 @@
             var conversationName = $('#playlist-dropdown').val();
             var playlistContext = $('#playlist-context').val();
             $('#spinner').show();
-            $.post('/send_message', { prompt: prompt, conversation_name: conversationName, playlist_context: playlistContext }, function (data) {
+            $.post('/send_message', { prompt: prompt, conversation_name: conversationName, playlist_context: playlistContext }, function(data) {
                 $('#spinner').hide();
                 $('#conversation').append('<div class="message user">' + prompt + '</div>');
                 $('#conversation').append('<div class="message bot"><pre>' + data.response + '</pre></div>');
-                $('#apply-button').show();
-            }).fail(function () {
+            }).fail(function() {
                 $('#spinner').hide();
                 alert('Failed to get response from server.');
             });
         }
-        $('#apply-button').click(function () {
-            var proposal = $('#proposal-content').text();
+        $('#apply-button').click(function() {
             var conversationName = $('#playlist-dropdown').val();
-            $.post('/apply_proposal', { proposal: proposal, conversation_name: conversationName }, function (data) {
-                alert('Playlist updated successfully!');
+            var lastMessage = $('#conversation .message.bot:last pre').text();
+            $.post('/apply_proposal', { proposal: lastMessage, conversation_name: conversationName }, function(data) {
+alert('Playlist updated successfully!');
             });
         });
     </script>
 </body>
-
 </html>
