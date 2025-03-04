@@ -1,0 +1,4 @@
+Flask==3.0.3
+spotipy==2.24.0
+openai==1.59.3
+json5==0.10.0

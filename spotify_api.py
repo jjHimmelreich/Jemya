@@ -8,8 +8,10 @@ pattern = r'playlist/([a-zA-Z0-9]+)'
 
 
 def get_spotify_oauth():
-    sp = SpotifyOAuth(client_id=conf.CLIENT_ID, client_secret=conf.CLIENT_SECRET, redirect_uri=conf.REDIRECT_URI, scope="user-modify-playback-state user-read-playback-state")
-    return sp
+    return SpotifyOAuth(client_id=conf.CLIENT_ID, 
+                        client_secret=conf.CLIENT_SECRET, 
+                        redirect_uri=conf.REDIRECT_URI, 
+                        scope="playlist-modify-public playlist-modify-private user-modify-playback-state user-read-playback-state")
 
 
 def init(token_info=None):
@@ -17,9 +19,52 @@ def init(token_info=None):
         sp = spotipy.Spotify(auth=token_info['access_token'])
     else:
         sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-            client_id=conf.CLIENT_ID, client_secret=conf.CLIENT_SECRET))
+                             client_id=conf.CLIENT_ID, 
+                             client_secret=conf.CLIENT_SECRET))
     return sp
 
+
+def get_user_info(token_info):
+    sp = init(token_info)
+    user_info = sp.current_user()
+    return user_info
+
+def get_user_playlists(token_info):
+    sp = init(token_info)
+    playlists = sp.current_user_playlists()
+    return playlists['items']
+
+def get_playlist_tracks(playlist_id, token_info):
+    sp = init(token_info)
+    results = sp.playlist_tracks(playlist_id)
+    track_objects = []
+    ttl_duration_ms = 0.1
+    for idx, item in enumerate(results['items']):
+        track = item['track']
+        names = [artist['name'] for artist in track['artists']]
+        artists = ', '.join(names)
+        album = track['album']['name']
+        name = track['name']
+        id = track['id']
+        track_url = track['external_urls']['spotify']
+        album_image = track['album']['images'][0]['url']
+        t_duration_ms = track['duration_ms']
+        ttl_duration_ms = t_duration_ms + ttl_duration_ms
+        track_objects.append(
+            {
+                "idx": idx + 1,  # Track number starts from 1
+                "id": id,
+                "url": track_url,
+                "name": name,
+                "album": album,
+                "album_image_url": album_image,
+                "author": artists,
+                "duration": utils.milliseconds_to_human_readable(t_duration_ms),
+                "duration_from_start": utils.milliseconds_to_human_readable(ttl_duration_ms - t_duration_ms)
+            }
+        )
+    total_duration = utils.milliseconds_to_human_readable(ttl_duration_ms)
+    return track_objects, len(track_objects), total_duration
 
 def process_playlist(playlist_link):
     track_objects = []
@@ -41,7 +86,6 @@ def process_playlist(playlist_link):
         pop = t['popularity']
         id = t['id']
         track_url = t['external_urls']['spotify']
-
         album_image = t['album']['images'][0]['url']
         t_duration_ms = t['duration_ms']
         ttl_duration_ms = t_duration_ms + ttl_duration_ms
@@ -59,6 +103,28 @@ def process_playlist(playlist_link):
             }
         )
     return playlist_name, track_objects
+
+
+def create_playlist(playlist_name, generated_tracks, token_info):
+    sp = init(token_info)
+    user_id = sp.current_user()['id']
+    playlist = sp.user_playlist_create(
+        user=user_id, name=playlist_name, public=True)
+    
+    playlist_id = playlist['id']
+    track_uris = []
+    for track in generated_tracks:
+        query = f"track:{track['track_name']} artist:{track['artist']}"
+        results = sp.search(q=query, type='track', limit=1)
+        if results['tracks']['items']:
+            track_uri = results['tracks']['items'][0]['uri']
+            track_uris.append(track_uri)
+            
+    if track_uris:
+        sp.user_playlist_add_tracks(
+            user=user_id, playlist_id=playlist_id, tracks=track_uris)
+    playlist_url = playlist['external_urls']['spotify']
+    return playlist_url
 
 
 def play_track(track_id, token_info):
