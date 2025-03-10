@@ -23,8 +23,9 @@
                 <!-- Playlists will be dynamically populated here -->
             </select>
             <div id="playlist-info">
-                <p>Total Tracks: <span id="total-tracks">0</span></p>
-                <p>Total Duration: <span id="total-duration">0:00</span></p>
+                Total Tracks: <span id="total-tracks">0</span> | Total Duration: <span id="total-duration">0:00</span>
+                <a id="playlist-url" href="#" target="_blank" class="spotify-link">Open in Spotify</a>
+                
             </div>
             <div id="playlist-tracks">
                 <!-- Playlist tracks will be dynamically populated here -->
@@ -41,6 +42,9 @@
             </form>
             <div id="apply-container">
                 <button class="apply-button" id="apply-button">Apply</button>
+            </div>
+            <div id="playlist-context" hidden>
+                <!-- Playlist playlist-context -->
             </div>
         </div>
     </div>
@@ -87,11 +91,13 @@
         }
         function fetchPlaylistTracks(playlistId, callback) {
             $.get('/playlist_tracks/' + playlistId, function(data) {
+                $('#playlist-url').attr('href',"https://open.spotify.com/playlist/"+playlistId);
                 $('#playlist-tracks').empty();
                 var playlistContext = '';
                 data.tracks.forEach(function(track) {
                     $('#playlist-tracks').append(
                         '<div class="track">' +
+                        '<div class="track-duration-from-start">' + track.duration_from_start + '.</div>' +
                         '<div class="track-number">' + track.idx + '.</div>' +
                         '<img src="' + track.album_image_url + '" alt="Album Art" width="50">' +
                         '<div class="track-info">' +
@@ -102,7 +108,7 @@
                         '</div>' +
                         '</div>'
                     );
-                    playlistContext += 'Track ' + track.idx + ': ' + track.name + ' by ' + track.author + ' from the album ' + track.album + ' (' + track.duration + '). ';
+                    playlistContext += 'Track ' + track.idx + ': ' + track.name + ' by ' + track.author + ' from the album ' + track.album + ' (' + track.duration + ').\n';
                 });
                 $('#total-tracks').text(data.total_tracks);
                 $('#total-duration').text(data.total_duration);
@@ -111,18 +117,20 @@
             });
         }
         function loadConversation(playlistId, playlistContext) {
-            $.get('/load_conversation', { conversation_name: playlistId }, function(data) {
+            $.get('/conversation/' + playlistId, function(data) {
+            //$.get('/conversation', { conversation_name: playlistId }, function(data) {
                 $('#conversation').empty();
+
                 if (data.conversation.length === 0) {
                     $('#conversation').append('<div class="message bot">No previous conversation found for this playlist.</div>');
                 } else {
                     data.conversation.forEach(function(message) {
                         var messageClass = message.role === 'user' ? 'message user' : 'message bot';
-                        $('#conversation').append('<div class="' + messageClass + '"><pre>' + message.content + '</pre></div>');
+                        $('#conversation').append('<div class="' + messageClass + '">' + message.content + '</div>');
                     });
                 }
                 // Update the context with the current playlist content
-                $('#playlist-context').val(playlistContext);
+                $('#playlist-context').val(playlistContext);                
             });
         }
         function sendMessage() {
@@ -134,6 +142,8 @@
                 $('#spinner').hide();
                 $('#conversation').append('<div class="message user">' + prompt + '</div>');
                 $('#conversation').append('<div class="message bot"><pre>' + data.response + '</pre></div>');
+                $('#prompt').val("")
+                
             }).fail(function() {
                 $('#spinner').hide();
                 alert('Failed to get response from server.');

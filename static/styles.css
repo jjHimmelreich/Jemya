@@ -6,16 +6,16 @@ body {
     padding: 0;
     display: flex;
     justify-content: center;
-align-items: center;
+    align-items: center;
     min-height: 100vh;
 }
 .container {
     display: flex;
     width: 100%;
-    max-width: 1200px;
+    max-width: 90%;
     height: 80vh;
     background-color: #1e1e1e;
-    border-radius: 8px;
+border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
@@ -38,17 +38,21 @@ align-items: center;
     background-color: #1ed760; /* Slightly lighter green */
 }
 .left-panel {
-    width: 30%;
+    width: 40%;
     background-color: #2e2e2e;
     padding: 20px;
     overflow-y: auto;
 }
 .right-panel {
-    width: 70%;
+    width: 60%;
     display: flex;
     flex-direction: column;
     padding: 20px;
     overflow-y: auto;
+
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    max-height: 80vh;  /* Limits the height and makes it scrollable */
 }
 h2 {
     color: #1db954;
@@ -109,24 +113,47 @@ li:hover {
     color: #b3b3b3;
 }
 #conversation {
-    flex-grow: 1;
-    margin-bottom: 20px;
+    /* flex-grow: 1;
+    margin-bottom: 20px; */
+    display: flex;
+    flex-direction: column; /* Stack messages vertically */
+    align-items: flex-start; /* Align bot messages to the left */
+    width: 100%;
+    overflow-y: auto;
+    max-height: 60vh; /* Prevents overflow */
+    padding: 10px;
+
 }
 .message {
+    display: inline-block;
+    padding: 12px 15px;
+    border-radius: 20px;
+    max-width: 80%;
+    word-wrap: break-word;
+    white-space: pre-wrap; /* Allows text wrapping */
+    word-break: break-word; /* Breaks long words that don't have spaces */
     margin-bottom: 10px;
-    padding: 10px;
-    border-radius: 4px;
+    line-height: 1.4;
+    position: relative;
+    margin-top: 10px;
+    overflow-wrap: break-word; /* Ensures wrapping even with long unbreakable words */
 }
 .message.user {
-    background-color: #1db954;
-    color: white;
-    align-self: flex-end;
+    align-self: flex-end; /* Aligns to the right */
+    text-align: right;
+    background-color: #4e8b0d;
+    margin-left: auto;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: 20px;
+    border-bottom-right-radius: 20px;
 }
 .message.bot {
-    background-color: #333;
-    color: white;
-    align-self: flex-start;
-    white-space: pre-wrap; /* Preserve whitespace and line breaks */
+    background-color: #333333;
+    margin-right: auto;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 20px;
+    border-bottom-right-radius: 20px;
+    align-self: flex-start; /* Aligns to the left */
 }
 .proposal {
     background-color: #2e2e2e;
@@ -138,7 +165,8 @@ li:hover {
 }
 .proposal-content {
     margin-bottom: 10px;
-    white-space: pre-wrap; /* Preserve whitespace and line breaks */
+    /*white-space: pre-wrap; /* Preserve whitespace and line breaks */
+    word-wrap: break-word;
 }
 .apply-button {
     background-color: #1DB954; /* Spotify green */
@@ -148,7 +176,6 @@ li:hover {
     border-radius: 5px;
     cursor: pointer;
     margin-top: 10px;
-    display: none; /* Initially hidden */
 }
 .apply-button:hover {
     background-color: #1ed760; /* Slightly lighter green */
@@ -173,6 +200,7 @@ li:hover {
 }
 #prompt-form {
     display: flex;
+    align-items: center;
 }
 #prompt {
     flex-grow: 1;
@@ -194,3 +222,23 @@ button {
 button:hover {
     background-color: #1ed760;
 }
+.spotify-link {
+    font-family: 'Arial', sans-serif;
+    color: #1DB954; /* Spotify Green */
+    background-color: #191414; /* Dark background */
+    padding: 10px 20px;
+    text-decoration: none;
+    border-radius: 25px;
+    font-size: 16px;
+    display: inline-block;
+    transition: background-color 0.3s, color 0.3s;
+  }
+
+  .spotify-link:hover {
+    background-color: #1ED760; /* Light green on hover */
+    color: #191414; /* Dark text color when hovered */
+  }
+
+  .spotify-link:active {
+    background-color: #1DB954; /* Same as original when clicked */
+  }
