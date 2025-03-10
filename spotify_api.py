@@ -12,8 +12,7 @@ def get_spotify_oauth():
     return SpotifyOAuth(client_id=conf.CLIENT_ID, 
                         client_secret=conf.CLIENT_SECRET, 
                         redirect_uri=conf.REDIRECT_URI, 
-                        scope="playlist-modify-public playlist-modify-private user-modify-playback-state user-read-playback-state")
-
+                        scope="user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state")
 
 def refresh_token(token_info):
     # Check if the token is expired
@@ -40,8 +39,21 @@ def get_user_info(token_info):
 
 def get_user_playlists(token_info):
     sp = init(token_info)
-    playlists = sp.current_user_playlists()
-    return playlists['items']
+    playlists = []
+    offset = 0
+    limit = 50  # Spotify API max limit per request
+    
+    while True:
+        response = sp.current_user_playlists(offset=offset, limit=limit)
+        playlists.extend(response['items'])
+
+        if len(response['items']) < limit:
+            break  # No more playlists to fetch
+
+        offset += limit  # Move to the next page
+
+    return playlists
+
 
 def get_playlist_tracks(playlist_id, token_info):
     sp = init(token_info)
@@ -139,18 +151,25 @@ def get_playlist_name(playlist_id, token_info):
     # Return the playlist name
     return playlist['name']
 
-
-def create_playlist(playlist_id, generated_tracks, token_info):
+def create_playlist(playlist_name, generated_tracks, token_info):
     sp = init(token_info)
     user_id = sp.current_user()['id']
 
-    # Clear playlist
+    playlist = sp.user_playlist_create(user=user_id, name=playlist_name, public=True)
+    playlist_id = playlist['id']
+
+    playlist_url = update_playlist(playlist_id=playlist_id, generated_tracks=generated_tracks, token_info=token_info)
+
+    return playlist_url
+
+def update_playlist(playlist_id, generated_tracks, token_info):
+    sp = init(token_info)
+    user_id = sp.current_user()['id']
+
+    playlist = sp.user_playlist(user=user_id, playlist_id=playlist_id)
+
     clear_playlist(playlist_id=playlist_id, token_info=token_info)
 
-    playlist_name = get_playlist_name(playlist_id=playlist_id, token_info=token_info)
-
-    playlist = sp.user_playlist_create(user=user_id, name=playlist_name, public=True)
-    
     playlist_id = playlist['id']
     track_uris = []
     for track in generated_tracks:

@@ -143,7 +143,7 @@ def apply_proposal():
     # Call the OpenAI API to generate the playlist based on the proposal
     generated_playlist = openai_api.generate_playlist(proposal)
     # Create a playlist on Spotify with the generated tracks
-    playlist_url = spotify_api.create_playlist(
+    playlist_url = spotify_api.update_playlist(
         conversation_name, generated_playlist, token_info)
     return jsonify(success=True, playlist_url=playlist_url)
 
