@@ -2,6 +2,7 @@ import utils
 import conf
 import re
 import spotipy
+import time
 from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
 from texttable import Texttable
 pattern = r'playlist/([a-zA-Z0-9]+)'
@@ -14,8 +15,16 @@ def get_spotify_oauth():
                         scope="playlist-modify-public playlist-modify-private user-modify-playback-state user-read-playback-state")
 
 
+def refresh_token(token_info):
+    # Check if the token is expired
+    if token_info and 'expires_at' in token_info and time.time() > token_info['expires_at']:
+        sp_oauth = get_spotify_oauth()
+        token_info = sp_oauth.refresh_access_token(token_info['refresh_token'])
+    return token_info
+
 def init(token_info=None):
     if token_info:
+        token_info = refresh_token(token_info)  # Ensure token is fresh
         sp = spotipy.Spotify(auth=token_info['access_token'])
     else:
         sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
