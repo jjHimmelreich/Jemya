@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, session, url_for, render_template, jsonify
+from flask import Flask, request, redirect, session, url_for, render_template, jsonify, send_from_directory
 import spotify_api  # Import your Spotify module
 import openai_api  # Import your OpenAI module
 import random
@@ -13,6 +13,9 @@ CONVERSATIONS_DIR = 'conversations'
 if not os.path.exists(CONVERSATIONS_DIR):
     os.makedirs(CONVERSATIONS_DIR)
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory('static', 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -99,6 +102,15 @@ def get_conversation(name):
         return jsonify(conversation=[])
 
 
+@app.route('/conversation/<name>', methods=['DELETE'])
+def delete_conversation(name):
+    filepath = os.path.join(CONVERSATIONS_DIR, f"{name}.json")
+    if os.path.exists(filepath):
+        os.remove(filepath)
+    
+    return jsonify(conversation=[])
+
+
 @app.route('/send_message', methods=['POST'])
 def send_message():
     prompt = request.form['prompt']
@@ -143,9 +155,12 @@ def apply_proposal():
     # Call the OpenAI API to generate the playlist based on the proposal
     generated_playlist = openai_api.generate_playlist(proposal)
     # Create a playlist on Spotify with the generated tracks
-    playlist_url = spotify_api.update_playlist(
+    playlist_url, tracks_not_found = spotify_api.update_playlist(
         conversation_name, generated_playlist, token_info)
-    return jsonify(success=True, playlist_url=playlist_url)
+    
+    print(json.dumps(tracks_not_found, indent=3))
+
+    return jsonify(success=True, playlist_url=playlist_url, tracks_not_found=tracks_not_found)
 
 
 if __name__ == '__main__':

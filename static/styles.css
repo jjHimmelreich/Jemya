@@ -1,244 +1,274 @@
 body {
-    background-color: #121212;
-    color: #b3b3b3;
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
+  background-color: #121212;
+  color: #b3b3b3;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
 }
 .container {
-    display: flex;
-    width: 100%;
-    max-width: 90%;
-    height: 80vh;
-    background-color: #1e1e1e;
-border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  width: 100%;
+  max-width: 90%;
+  height: 80vh;
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 .top-nav {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    display: flex;
-    align-items: center;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
 }
-.login-button, .logout-button {
-    background-color: #1DB954; /* Spotify green */
-    color: white;
-    padding: 10px 20px;
-    text-decoration: none;
-    border-radius: 5px;
-    margin-left: 10px;
+.login-button,
+.logout-button {
+  background-color: #1db954; /* Spotify green */
+  color: white;
+  padding: 10px 20px;
+  text-decoration: none;
+  border-radius: 5px;
+  margin-left: 10px;
 }
-.login-button:hover, .logout-button:hover {
-    background-color: #1ed760; /* Slightly lighter green */
+.login-button:hover,
+.logout-button:hover {
+  background-color: #1ed760; /* Slightly lighter green */
 }
 .left-panel {
-    width: 40%;
-    background-color: #2e2e2e;
-    padding: 20px;
-    overflow-y: auto;
+  width: 40%;
+  background-color: #2e2e2e;
+  padding: 20px;
+  overflow-y: auto;
 }
 .right-panel {
-    width: 60%;
-    display: flex;
-    flex-direction: column;
-    padding: 20px;
-    overflow-y: auto;
+  width: 60%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow-y: auto;
 
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    max-height: 80vh;  /* Limits the height and makes it scrollable */
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 80vh; /* Limits the height and makes it scrollable */
 }
 h2 {
-    color: #1db954;
-    margin-bottom: 10px;
+  color: #1db954;
+  margin-bottom: 10px;
 }
 ul {
-    list-style: none;
-    padding: 0;
+  list-style: none;
+  padding: 0;
 }
 li {
-    padding: 10px;
-    border-bottom: 1px solid #333;
-    cursor: pointer;
+  padding: 10px;
+  border-bottom: 1px solid #333;
+  cursor: pointer;
 }
 li:hover {
-    background-color: #333;
+  background-color: #333;
 }
+
+.playlist-selector {
+  flex-direction: row;
+  display: flex;
+  align-items: center; /* Align items vertically centered */
+}
+
 #playlist-dropdown {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #333;
-    border-radius: 4px;
-    background-color: #333;
-    color: #fff;
-    margin-bottom: 20px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background-color: #333;
+  color: #fff;
+  margin-right: 10px; /* Add some space between the dropdown and the button */
 }
 #playlist-info {
-    margin-bottom: 20px;
+  margin-bottom: 20px;
 }
 #playlist-tracks {
-    margin-top: 20px;
+  margin-top: 20px;
 }
 .track {
-    display: flex;
-    align-items: center;
-    padding: 10px;
-    border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #333;
 }
 .track-number {
-    margin-right: 10px;
-    font-size: 16px;
-    font-weight: bold;
+  margin-right: 10px;
+  font-size: 16px;
+  font-weight: bold;
 }
 .track img {
-    margin-right: 10px;
-    border-radius: 4px;
+  margin-right: 10px;
+  border-radius: 4px;
 }
 .track-info {
-    display: flex;
-    flex-direction: column;
+  display: flex;
+  flex-direction: column;
+}
+.track-info.last {
+  align-self: flex-end;
 }
 .track-name {
-    font-size: 16px;
-    font-weight: bold;
+  font-size: 16px;
+  font-weight: bold;
 }
-.track-artist, .track-album, .track-duration {
-    font-size: 14px;
-    color: #b3b3b3;
+.track-artist,
+.track-album {
+  font-size: 14px;
+  color: #179bc8;
+}
+.track-duration {
+  font-size: 16px;
+  /* color: #179bc8; */
 }
 #conversation {
-    /* flex-grow: 1;
+  /* flex-grow: 1;
     margin-bottom: 20px; */
-    display: flex;
-    flex-direction: column; /* Stack messages vertically */
-    align-items: flex-start; /* Align bot messages to the left */
-    width: 100%;
-    overflow-y: auto;
-    max-height: 60vh; /* Prevents overflow */
-    padding: 10px;
-
+  display: flex;
+  flex-direction: column; /* Stack messages vertically */
+  align-items: flex-start; /* Align bot messages to the left */
+  width: 100%;
+  overflow-y: auto;
+  max-height: 60vh; /* Prevents overflow */
+  padding: 10px;
 }
 .message {
-    display: inline-block;
-    padding: 12px 15px;
-    border-radius: 20px;
-    max-width: 80%;
-    word-wrap: break-word;
-    white-space: pre-wrap; /* Allows text wrapping */
-    word-break: break-word; /* Breaks long words that don't have spaces */
-    margin-bottom: 10px;
-    line-height: 1.4;
-    position: relative;
-    margin-top: 10px;
-    overflow-wrap: break-word; /* Ensures wrapping even with long unbreakable words */
+  display: inline-block;
+  padding: 12px 15px;
+  border-radius: 20px;
+  max-width: 80%;
+  word-wrap: break-word;
+  white-space: pre-wrap; /* Allows text wrapping */
+  word-break: break-word; /* Breaks long words that don't have spaces */
+  margin-bottom: 10px;
+  line-height: 1.4;
+  position: relative;
+  margin-top: 10px;
+  overflow-wrap: break-word; /* Ensures wrapping even with long unbreakable words */
 }
 .message.user {
-    align-self: flex-end; /* Aligns to the right */
-    text-align: right;
-    background-color: #4e8b0d;
-    margin-left: auto;
-    border-top-right-radius: 0;
-    border-bottom-left-radius: 20px;
-    border-bottom-right-radius: 20px;
+  align-self: flex-end; /* Aligns to the right */
+  text-align: right;
+  background-color: #4e8b0d;
+  margin-left: auto;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
 }
 .message.bot {
-    background-color: #333333;
-    margin-right: auto;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 20px;
-    border-bottom-right-radius: 20px;
-    align-self: flex-start; /* Aligns to the left */
+  background-color: #333333;
+  margin-right: auto;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+  align-self: flex-start; /* Aligns to the left */
 }
 .proposal {
-    background-color: #2e2e2e;
-    color: #fff;
-    padding: 10px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-    border: 1px solid #444;
+  background-color: #333333;
+  margin-right: auto;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+  align-self: flex-start; /* Aligns to the left */
 }
 .proposal-content {
-    margin-bottom: 10px;
-    /*white-space: pre-wrap; /* Preserve whitespace and line breaks */
-    word-wrap: break-word;
+  margin-bottom: 10px;
+  /*white-space: pre-wrap; /* Preserve whitespace and line breaks */
+  word-wrap: break-word;
 }
-.apply-button {
-    background-color: #1DB954; /* Spotify green */
-    color: white;
-    padding: 5px 10px; /* Half the height of the Send button */
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    margin-top: 10px;
+
+.refresh-button {
+  background-color: #1db954; /* Spotify green */
+  color: white;
+  size: 16px;
+  padding: 5px 10px; /* Half the height of the Send button */
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
 }
-.apply-button:hover {
-    background-color: #1ed760; /* Slightly lighter green */
+.refresh-button:hover {
+  background-color: #1ed760; /* Slightly lighter green */
 }
+
 .spinner {
-    display: none;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top: 4px solid #1db954;
-    width: 20px;
-    height: 20px;
-    animation: spin 1s linear infinite;
-    margin-left: 10px;
+  display: none;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 4px solid #1db954;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  margin-left: 10px;
 }
 @keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 #prompt-form {
-    display: flex;
-    align-items: center;
+  display: flex;
+  align-items: center;
 }
 #prompt {
-    flex-grow: 1;
-    padding: 10px;
-    border: 1px solid #333;
-    border-radius: 4px;
-    background-color: #333;
-    color: #fff;
-    margin-right: 10px;
+  flex-grow: 1;
+  padding: 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background-color: #333;
+  color: #fff;
+  margin-right: 10px;
 }
 button {
-    background-color: #1db954;
-    border: none;
-    padding: 10px 20px;
-    color: #fff;
-    border-radius: 4px;
-    cursor: pointer;
+  background-color: #1db954;
+  border: none;
+  padding: 10px 20px;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
 }
 button:hover {
-    background-color: #1ed760;
+  background-color: #1ed760;
 }
+
 .spotify-link {
-    font-family: 'Arial', sans-serif;
-    color: #1DB954; /* Spotify Green */
-    background-color: #191414; /* Dark background */
-    padding: 10px 20px;
-    text-decoration: none;
-    border-radius: 25px;
-    font-size: 16px;
-    display: inline-block;
-    transition: background-color 0.3s, color 0.3s;
-  }
+  font-family: "Arial", sans-serif;
+  color: #1db954; /* Spotify Green */
+  background-color: #191414; /* Dark background */
+  padding: 10px 20px;
+  text-decoration: none;
+  border-radius: 25px;
+  font-size: 16px;
+  display: inline-block;
+  transition: background-color 0.3s, color 0.3s;
+}
 
-  .spotify-link:hover {
-    background-color: #1ED760; /* Light green on hover */
-    color: #191414; /* Dark text color when hovered */
-  }
+.spotify-link:hover {
+  background-color: #1ed760; /* Light green on hover */
+  color: #191414; /* Dark text color when hovered */
+}
 
-  .spotify-link:active {
-    background-color: #1DB954; /* Same as original when clicked */
-  }
+.spotify-link:active {
+  background-color: #1db954; /* Same as original when clicked */
+}
+
+.separator {
+  width: 5px;
+  background-color: #333; /* Dark separator to match the panels */
+  cursor: col-resize;
+  transition: background-color 0.3s; /* Smooth transition for hover effect */
+}
+
+.separator:hover {
+  background-color: #555; /* Slightly lighter on hover */
+}

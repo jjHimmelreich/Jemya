@@ -158,7 +158,7 @@ def create_playlist(playlist_name, generated_tracks, token_info):
     playlist = sp.user_playlist_create(user=user_id, name=playlist_name, public=True)
     playlist_id = playlist['id']
 
-    playlist_url = update_playlist(playlist_id=playlist_id, generated_tracks=generated_tracks, token_info=token_info)
+    playlist_url, tracks_not_found = update_playlist(playlist_id=playlist_id, generated_tracks=generated_tracks, token_info=token_info)
 
     return playlist_url
 
@@ -171,6 +171,7 @@ def update_playlist(playlist_id, generated_tracks, token_info):
     clear_playlist(playlist_id=playlist_id, token_info=token_info)
 
     playlist_id = playlist['id']
+    tracks_not_found = []
     track_uris = []
     for track in generated_tracks:
         query = f"track:{track['track_name']} artist:{track['artist']}"
@@ -178,12 +179,14 @@ def update_playlist(playlist_id, generated_tracks, token_info):
         if results['tracks']['items']:
             track_uri = results['tracks']['items'][0]['uri']
             track_uris.append(track_uri)
+        else:
+            tracks_not_found.append(query)
             
     if track_uris:
         sp.user_playlist_add_tracks(
             user=user_id, playlist_id=playlist_id, tracks=track_uris)
     playlist_url = playlist['external_urls']['spotify']
-    return playlist_url
+    return playlist_url, tracks_not_found
 
 
 def play_track(track_id, token_info):
