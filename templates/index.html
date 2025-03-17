@@ -2,26 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Spotify Playlist Generator</title>
+    <title>Jemya: Spotify Playlist Generator - Powered by AI</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </head>
 <body>
     <nav class="top-nav">
         {% if session.token_info %}
             <span>Welcome, {{ session.user_name }}</span>
-            <a href="{{ url_for('logout') }}" class="logout-button">Log Off</a>
+            <a href="{{ url_for('logout') }}" class="logout-button">Log Off</a> <div id="user_id" hidden>{{ session.user_id }}</div>
         {% else %}
             <a href="{{ url_for('login') }}" class="login-button">Login to Spotify</a>
         {% endif %}
     </nav>
     <div class="container">
+
         <div class="left-panel">
             <h2>Playlists</h2>
-            <select id="playlist-dropdown">
-                <option value="create-new">Create New</option>
-                <!-- Playlists will be dynamically populated here -->
-            </select>
+            <div class="playlist-selector">
+                <select id="playlist-dropdown"></select>
+                <button class="refresh-button" id="refresh-button">
+                    <i class="material-icons">refresh</i>
+                </button>
+            </div>
+            <!-- <div id="create-new-container">
+                <button class="apply-button" id="create-new-button">Create New</button>
+            </div> -->
+
             <div id="playlist-info">
                 Total Tracks: <span id="total-tracks">0</span> | Total Duration: <span id="total-duration">0:00</span>
                 <a id="playlist-url" href="#" target="_blank" class="spotify-link">Open in Spotify</a>
@@ -31,6 +41,9 @@
                 <!-- Playlist tracks will be dynamically populated here -->
             </div>
         </div>
+
+        <div class="separator"></div> <!-- Draggable separator -->
+
         <div class="right-panel">
             <div id="conversation">
                 <!-- Conversation will be dynamically populated here -->
@@ -41,121 +54,13 @@
                 <button type="submit">Send</button>
             </form>
             <div id="apply-container">
-                <button class="apply-button" id="apply-button">Apply</button>
+                <button id="apply-button">Apply</button>
+                <button id="clear-conversation-button">Clear Converation</button>
             </div>
             <div id="playlist-context" hidden>
                 <!-- Playlist playlist-context -->
             </div>
         </div>
     </div>
-    <script>
-        $(document).ready(function() {
-            // Fetch and display playlists
-            fetchPlaylists();
-            // Handle form submission
-            $('#prompt-form').submit(function(event) {
-                event.preventDefault();
-                sendMessage();
-            });
-            // Handle Enter key press in textarea
-            $('#prompt').keypress(function(event) {
-                if (event.which === 13 && !event.shiftKey) {
-                    event.preventDefault();
-                    $('#prompt-form').submit();
-                }
-            });
-            // Handle playlist selection
-            $('#playlist-dropdown').change(function() {
-                var playlistId = $(this).val();
-                if (playlistId !== 'create-new') {
-                    fetchPlaylistTracks(playlistId, function(playlistContext) {
-                        loadConversation(playlistId, playlistContext);
-                    });
-                } else {
-                    $('#playlist-tracks').empty();
-                    $('#total-tracks').text('0');
-                    $('#total-duration').text('0:00');
-                    $('#playlist-context').val('');
-                    $('#conversation').empty();
-                }
-            });
-});
-        function fetchPlaylists() {
-            $.get('/playlists', function(data) {
-                $('#playlist-dropdown').empty();
-                $('#playlist-dropdown').append('<option value="create-new">Create New</option>');
-                data.playlists.forEach(function(playlist) {
-                    $('#playlist-dropdown').append('<option value="' + playlist.id + '">' + playlist.name + '</option>');
-                });
-            });
-        }
-        function fetchPlaylistTracks(playlistId, callback) {
-            $.get('/playlist_tracks/' + playlistId, function(data) {
-                $('#playlist-url').attr('href',"https://open.spotify.com/playlist/"+playlistId);
-                $('#playlist-tracks').empty();
-                var playlistContext = '';
-                data.tracks.forEach(function(track) {
-                    $('#playlist-tracks').append(
-                        '<div class="track">' +
-                        '<div class="track-duration-from-start">' + track.duration_from_start + '.</div>' +
-                        '<div class="track-number">' + track.idx + '.</div>' +
-                        '<img src="' + track.album_image_url + '" alt="Album Art" width="50">' +
-                        '<div class="track-info">' +
-                        '<div class="track-name">' + track.name + '</div>' +
-                        '<div class="track-artist">' + track.author + '</div>' +
-                        '<div class="track-album">' + track.album + '</div>' +
-                        '<div class="track-duration">' + track.duration + '</div>' +
-                        '</div>' +
-                        '</div>'
-                    );
-                    playlistContext += 'Track ' + track.idx + ': ' + track.name + ' by ' + track.author + ' from the album ' + track.album + ' (' + track.duration + ').\n';
-                });
-                $('#total-tracks').text(data.total_tracks);
-                $('#total-duration').text(data.total_duration);
-                $('#playlist-context').val(playlistContext);
-                if (callback) callback(playlistContext);
-            });
-        }
-        function loadConversation(playlistId, playlistContext) {
-            $.get('/conversation/' + playlistId, function(data) {
-            //$.get('/conversation', { conversation_name: playlistId }, function(data) {
-                $('#conversation').empty();
-
-                if (data.conversation.length === 0) {
-                    $('#conversation').append('<div class="message bot">No previous conversation found for this playlist.</div>');
-                } else {
-                    data.conversation.forEach(function(message) {
-                        var messageClass = message.role === 'user' ? 'message user' : 'message bot';
-                        $('#conversation').append('<div class="' + messageClass + '">' + message.content + '</div>');
-                    });
-                }
-                // Update the context with the current playlist content
-                $('#playlist-context').val(playlistContext);                
-            });
-        }
-        function sendMessage() {
-            var prompt = $('#prompt').val();
-            var conversationName = $('#playlist-dropdown').val();
-            var playlistContext = $('#playlist-context').val();
-            $('#spinner').show();
-            $.post('/send_message', { prompt: prompt, conversation_name: conversationName, playlist_context: playlistContext }, function(data) {
-                $('#spinner').hide();
-                $('#conversation').append('<div class="message user">' + prompt + '</div>');
-                $('#conversation').append('<div class="message bot"><pre>' + data.response + '</pre></div>');
-                $('#prompt').val("")
-                
-            }).fail(function() {
-                $('#spinner').hide();
-                alert('Failed to get response from server.');
-            });
-        }
-        $('#apply-button').click(function() {
-            var conversationName = $('#playlist-dropdown').val();
-            var lastMessage = $('#conversation .message.bot:last pre').text();
-            $.post('/apply_proposal', { proposal: lastMessage, conversation_name: conversationName }, function(data) {
-alert('Playlist updated successfully!');
-            });
-        });
-    </script>
 </body>
 </html>
