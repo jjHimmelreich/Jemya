@@ -151,9 +151,16 @@ def send_message():
 def apply_proposal():
     proposal = request.form['proposal']
     conversation_name = request.form.get('conversation_name')
+    playlist_context = request.form.get('playlist_context', '')
+
     token_info = session.get('token_info')
+    
+    # # Call the OpenAI API to generate the playlist based on the proposal
+    # generated_playlist = openai_api.generate_playlist(proposal)
+    
     # Call the OpenAI API to generate the playlist based on the proposal
-    generated_playlist = openai_api.generate_playlist(proposal)
+    generated_playlist = openai_api.generate_playlist(playlist_context)
+
     # Create a playlist on Spotify with the generated tracks
     playlist_url, tracks_not_found = spotify_api.update_playlist(
         conversation_name, generated_playlist, token_info)

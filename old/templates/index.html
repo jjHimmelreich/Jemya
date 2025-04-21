@@ -18,9 +18,30 @@
             <a href="{{ url_for('login') }}" class="login-button">Login to Spotify</a>
         {% endif %}
     </nav>
+
     <div class="container">
 
-        <div class="left-panel">
+        <div class="chat-panel">
+            <div id="conversation">
+                <!-- Conversation will be dynamically populated here -->
+            </div>
+            <div id="spinner" class="spinner"></div>
+            <form id="prompt-form">
+                <textarea id="prompt" placeholder="Type your message here..."></textarea>
+                <button type="submit">Send</button>
+            </form>
+            <div id="apply-container">
+                <button id="apply-button">Apply</button>
+                <button id="clear-conversation-button">Clear Converation</button>
+            </div>
+            <div id="playlist-context" hidden>
+                <!-- Playlist playlist-context -->
+            </div>
+        </div>        
+
+        <div class="separator"></div> <!-- Draggable separator -->
+
+        <div class="playlist-panel">
             <h2>Playlists</h2>
             <div class="playlist-selector">
                 <select id="playlist-dropdown"></select>
@@ -39,26 +60,6 @@
             </div>
             <div id="playlist-tracks">
                 <!-- Playlist tracks will be dynamically populated here -->
-            </div>
-        </div>
-
-        <div class="separator"></div> <!-- Draggable separator -->
-
-        <div class="right-panel">
-            <div id="conversation">
-                <!-- Conversation will be dynamically populated here -->
-            </div>
-            <div id="spinner" class="spinner"></div>
-            <form id="prompt-form">
-                <textarea id="prompt" placeholder="Type your message here..."></textarea>
-                <button type="submit">Send</button>
-            </form>
-            <div id="apply-container">
-                <button id="apply-button">Apply</button>
-                <button id="clear-conversation-button">Clear Converation</button>
-            </div>
-            <div id="playlist-context" hidden>
-                <!-- Playlist playlist-context -->
             </div>
         </div>
     </div>
