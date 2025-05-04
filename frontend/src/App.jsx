@@ -1,87 +1,169 @@
-// frontend/src/App.jsx
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import './App.css';
+import React, { useState, useEffect } from "react";
+import TracksTable from "./TracksTable";
+import axios from "axios";
+import "./App.css";
+import { extractJsonAndText } from "./utils";
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [message, setMessage] = useState('');
-  const [chat, setChat] = useState([]);
+function App() {
+  const [prompt, setPrompt] = useState("");
+  const [gptReply, setGptReply] = useState("");
+  const [tracks, setTracks] = useState([]);
+  const [playlistUrl, setPlaylistUrl] = useState("");
+  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [user, setUser] = useState(null);
+  // const [gptText, setGptText] = useState("");
+  // const [gptTracks, setGptTracks] = useState([]);
+  const [beforeText, setBeforeText] = useState("");
+  const [afterText, setAfterText] = useState("");
 
+  // ✅ Check login status when app loads
   useEffect(() => {
-    // Check if user is already logged in
-    axios.get('/me').then(res => {
-      setUser(res.data.user_id);
-    }).catch(() => {});
+    // Check if user is logged in
+    fetch("/me")
+      .then((res) => {
+        if (!res.ok) throw new Error("Not logged in");
+        return res.json();
+      })
+      .then((data) => {
+        setUser({ name: data.user_name });
+      })
+      .catch(() => {
+        setUser(null);
+      });
   }, []);
 
   const handleLogin = async () => {
-    const res = await axios.get('/login');
-    window.location.href = res.data.auth_url;
+    window.location.href = "http://localhost:5555/login";
   };
 
-  const handleSend = async () => {
-    if (!message.trim()) return;
-    const newChat = [...chat, { role: 'user', content: message }];
-    setChat(newChat);
-    setMessage('');
-    setLoading(true);
-
+  const handleLogout = async () => {
     try {
-      const res = await axios.post('/generate-playlist', { prompt: message });
-      const { gpt_reply, playlist_url, tracks } = res.data;
+      await axios.post("/logout");
+      setUser(null);
+      setStep(1);
+      setPrompt("");
+      setGptReply("");
+      setTracks([]);
+      setPlaylistUrl("");
+      setBeforeText("");
+      setAfterText("");
+    } catch (err) {
+      console.error("Logout failed", err);
+    }
+  };
 
-      newChat.push({ role: 'gpt', content: gpt_reply });
-      newChat.push({ role: 'spotify', playlist_url, tracks });
-      setChat([...newChat]);
+  const handleChat = async () => {
+    if (prompt.trim() === "") return;
+
+    setLoading(true);
+    setError("");
+    try {
+      const res = await axios.post("/chat", { prompt }, { withCredentials: true });
+      const { beforeText, afterText, data } = extractJsonAndText(res.data.result);
+
+      setBeforeText(beforeText);
+      setAfterText(afterText);
+      setGptReply(data);
+      setStep(2);
     } catch (err) {
       console.error(err);
+      setError("Error generating playlist idea.");
     }
-
     setLoading(false);
   };
 
+  const handleConfirm = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await axios.post("/confirm-playlist");
+      setTracks(res.data.tracks);
+      setPlaylistUrl(res.data.playlist_url);
+      setStep(3); // Move to the final step
+    } catch (err) {
+      console.error(err);
+      setError("Error creating Spotify playlist.");
+    }
+    setLoading(false);
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      // Prevent Enter from creating a new line
+      e.preventDefault();
+      handleChat();
+    }
+  };
+
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Spotify Playlist Chat</h1>
+    <div className="App">
+      <div className="header">
+        <div className="app-title">Jemya | Playlist generator</div>
+        <div className="login-section">
+          {user ? (
+            <>
+              <span>👤 {user.name}</span>
+              <button className="login-btn" onClick={handleLogout}>
+                Logout
+              </button>
+            </>
+          ) : (
+            <button className="login-btn" onClick={handleLogin}>
+              Login with Spotify
+            </button>
+          )}
+        </div>
+        </div>
+        
+      <div className="main-content">
+        {step === 2 && (
+          <div className="gpt-playlist-section">
+            <h3>Playlist Suggestion</h3>
 
-      {!user ? (
-        <button className="bg-green-600 text-white px-4 py-2 rounded" onClick={handleLogin}>Login with Spotify</button>
-      ) : (
-        <>
-          <div className="border p-4 h-[60vh] overflow-y-auto rounded space-y-4 mb-4">
-            {chat.map((msg, i) => (
-              <div key={i} className={msg.role === 'user' ? 'text-right' : 'text-left'}>
-                {msg.role === 'spotify' ? (
-                  <div>
-                    <p className="font-semibold">🎵 Spotify Playlist:</p>
-                    <a href={msg.playlist_url} target="_blank" className="text-blue-500 underline">Open Playlist</a>
-                    <ul className="text-sm mt-2 list-disc ml-5">
-                      {msg.tracks.map((track, i) => (
-                        <li key={i}>{track.title} - {track.artist}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <p>{msg.content}</p>
-                )}
-              </div>
-            ))}
-            {loading && <p className="italic text-gray-500">GPT is generating your playlist...</p>}
-          </div>
+            {beforeText && <p>{beforeText}</p>}
 
-          <div className="flex gap-2">
-            <input
-              className="border flex-1 px-4 py-2 rounded"
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              placeholder="Describe the kind of playlist you want..."
-            />
-            <button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={handleSend}>Send</button>
+            <div className="tracks">
+              <TracksTable data={gptReply} />
+            </div>
+
+            {afterText && <p>{afterText}</p>}
+
+            <button className="submit-button" onClick={handleConfirm} disabled={loading}>
+              Approve & Create Playlist
+            </button>
           </div>
-        </>
-      )}
-    </div>
+        )}
+
+        {step === 3 && (
+          <div className="playlist-created-section">
+              <a href={playlistUrl} target="_blank" rel="noopener noreferrer">Open Playlist on Spotify</a>
+            <div className="tracks">
+              <h4>Tracks:</h4>
+              <TracksTable data={tracks} />
+            </div>
+          </div>
+        )}
+
+        {error && <p className="error">{error}</p>}
+      </div>
+
+      {/* Footer with only one prompt input */}
+      <div className="footer">
+        <div className="prompt-container">
+          <textarea
+            className="prompt-input"
+            rows="4"
+            placeholder="Describe your mood, vibe, or activity..."
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyPress={handleKeyPress} // Trigger on Enter
+          />
+        </div>
+      </div>
+      </div>
   );
 }
+
+export default App;
