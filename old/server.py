@@ -170,5 +170,5 @@ def apply_proposal():
     return jsonify(success=True, playlist_url=playlist_url, tracks_not_found=tracks_not_found)
 
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5555, host='0.0.0.0')
+# if __name__ == '__main__':
+#     app.run(debug=True, port=5555, host='0.0.0.0')
