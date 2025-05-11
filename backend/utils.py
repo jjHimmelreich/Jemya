@@ -24,3 +24,8 @@ def extract_playlist(text):
         return None, text, ""
 
     return parsed_json, text_before, text_after
+
+def add_prefix_if_missing(prefix, s):
+    if not s.startswith(prefix):
+        return prefix + s
+    return s

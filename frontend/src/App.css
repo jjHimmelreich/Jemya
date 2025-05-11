@@ -1,13 +1,69 @@
+.App {
+  text-align: center;
+  display: flex;
+  background-color: #121212;
+  color: #e0e0e0;
+  position:absolute;
+  top:0; bottom: 0;left: 0;right: 0;
+}
+
+.sidemenu {
+  width: 240px;
+  background-color: #202123;
+  padding: 10px;
+}
+
+.side-menu-button {
+  padding: 12px;
+  border: 1px solid white;
+  border-radius: 5px;
+  text-align: left;
+  transition: ease 0.25s all;
+}
+.side-menu-button:hover {
+background-color: rgb(255,255,255, 0.1);
+}
+.side-menu-button span{
+  padding-left: 6px;
+  padding-right: 12px;
+}
+
+.chatbox {
+  flex: 1;
+  background-color: #343541;
+  position: relative;
+}
+
+/* Prompt Section */
+.prompt-container {
+  padding: 12px;
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+}
+
+.prompt-input-textarea {
+  padding: 10px;
+  border-radius: 5px;
+  border: none;
+  background-color: #40414f;
+  outline: none;
+  width: 100%;
+  box-shadow: 0px 0px 3px 0 rgba(0,0,0,0.5);
+  color: white;
+}
+
+
 /* Global Styles */
-body {
+/* body {
   background-color: #121212;
   color: #e0e0e0;
   font-family: Arial, sans-serif;
   display: flex;
   flex-direction: column;
-  height: 100vh; /* Ensure full height for the container */
+  height: 100vh; 
   margin: 0;
-}
+} */
 
 h1 {
   color: #fff;
@@ -18,17 +74,15 @@ h1 {
 /* Header */
 .header {
   display: flex;
-  justify-content: space-between;
-  padding: 10px 20px;
+  padding: 15px;
   background-color: #1f1f1f;
   color: white;
-  font-size: 16px;
-  z-index: 100;
 }
 
 .app-title {
   font-size: 20px;
   font-weight: bold;
+  flex:1
 }
 
 .login-section {
@@ -38,16 +92,17 @@ h1 {
 .login-btn {
   background-color: #1db954;
   color: white;
-  padding: 10px 15px;
+  padding: 12px;
   border-radius: 5px;
   border: none;
   cursor: pointer;
   font-size: 14px;
-  transition: background-color 0.3s ease;
+  text-align: center;
+  transition: ease 0.25s all;
 }
 
 .login-btn:hover {
-  background-color: #1ed760;
+  background-color: rgb(30, 215, 96, 0.1);
 }
 
 /* Main Content */
@@ -58,28 +113,6 @@ h1 {
   margin-bottom: 100px; /* Added margin to make room for the footer */
 }
 
-/* Prompt Section */
-.prompt-container {
-  display: flex;
-  justify-content: center; /* Center the prompt */
-  width: 100%;
-  position: fixed; /* Fixed position at the bottom */
-  bottom: 0;
-  left: 0;
-  padding: 10px;
-  background-color: #121212;
-}
-
-.prompt-input {
-  width: 80%; /* Adjust to make it centered */
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid #4D4D4D;
-  font-size: 16px;
-  resize: none;
-  background-color: #303030;
-  color: white;
-}
 
 /* Submit Button */
 .submit-button {
@@ -100,6 +133,7 @@ h1 {
 .gpt-playlist-section {
   text-align: center;
   margin-top: 20px;
+  overflow-y: scroll;
 }
 
 .tracks ul {
@@ -165,3 +199,4 @@ h1 {
   color: #1db954; /* Spotify Green */
   text-decoration: none;
 }
+
