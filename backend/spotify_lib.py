@@ -73,6 +73,23 @@ def get_user_info(token_info):
     return user_info
 
 ######################################################################
+def create_playlist(token_info, playlist_name=None):
+    # Create a Spotify session
+    sp = init(token_info)
+
+    # Create playlist name
+    p_name = playlist_name if playlist_name else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    p_name = utils.add_prefix_if_missing('Jemya: ', p_name)
+
+    # Create playlist
+    playlist = sp.user_playlist_create(sp.current_user()['id'], p_name, public=True)
+    
+    # Return playlist URL and track details
+    playlist_url = playlist['external_urls']['spotify']
+    playlist_id = playlist['id']
+
+    return playlist_url, playlist_id
+
 
 def generate_playlist(token_info, playlist_name=None, tracks_list=[]):
     """

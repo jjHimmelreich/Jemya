@@ -101,6 +101,22 @@ def chat():
     })
 
 
+@app.route("/create-playlist", methods=['POST'])
+def create_playlist():
+    if 'user_id' not in session or 'token_info' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    token_info = session['token_info']    
+    playlist_name = request.json.get("name")
+
+    playlist_url, playlist_id = spotify_lib.create_playlist(token_info=token_info, 
+                                                            playlist_name=playlist_name)
+
+    return jsonify({
+        "playlist_url": playlist_url,
+        "playlist_id": playlist_id
+    })
+
 @app.route("/confirm-playlist", methods=['POST'])
 def confirm_playlist():
     if 'user_id' not in session or 'token_info' not in session:
