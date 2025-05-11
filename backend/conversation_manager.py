@@ -31,13 +31,20 @@ def get_conversation(user_id, playlist_id=None):
         }
     return convo
 
-def update_sonversation(user_id, role='', content='', playlist_id=None):
+def add_to_conversation(user_id, role='', content='', extra_kv = {}, playlist_id=None):
     conversation = get_conversation(user_id, playlist_id=playlist_id)
-    conversation["messages"].append({"role": role, "content": content})
-    save_sonversation(user_id=user_id, conversation=conversation, playlist_id=playlist_id)
+
+    append_obj = {"role": role, "content": content}
+    
+    for k, v in extra_kv.items():
+        append_obj[k] = v
+
+    conversation["messages"].append(append_obj)
+
+    save_conversation(user_id=user_id, conversation=conversation, playlist_id=playlist_id)
     return conversation
 
-def save_sonversation(user_id, conversation, playlist_id=None):
+def save_conversation(user_id, conversation, playlist_id=None):
     user_folder = os.path.join(DATA_DIR, user_id)
     os.makedirs(user_folder, exist_ok=True)
     convo_file = os.path.join(user_folder, "last_draft.json")

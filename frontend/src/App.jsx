@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import TracksTable from "./TracksTable";
 import axios from "axios";
+import "./normal.css";
 import "./App.css";
 import { extractJsonAndText } from "./utils";
 
@@ -13,14 +14,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
-  // const [gptText, setGptText] = useState("");
-  // const [gptTracks, setGptTracks] = useState([]);
   const [beforeText, setBeforeText] = useState("");
   const [afterText, setAfterText] = useState("");
 
-  // ✅ Check login status when app loads
   useEffect(() => {
-    // Check if user is logged in
     fetch("/me")
       .then((res) => {
         if (!res.ok) throw new Error("Not logged in");
@@ -34,7 +31,7 @@ function App() {
       });
   }, []);
 
-  const handleLogin = async () => {
+  const handleLogin = () => {
     window.location.href = "http://localhost:5555/login";
   };
 
@@ -59,6 +56,7 @@ function App() {
 
     setLoading(true);
     setError("");
+    setPrompt("")
     try {
       const res = await axios.post("/chat", { prompt }, { withCredentials: true });
       const { beforeText, afterText, data } = extractJsonAndText(res.data.result);
@@ -81,7 +79,7 @@ function App() {
       const res = await axios.post("/confirm-playlist");
       setTracks(res.data.tracks);
       setPlaylistUrl(res.data.playlist_url);
-      setStep(3); // Move to the final step
+      setStep(3);
     } catch (err) {
       console.error(err);
       setError("Error creating Spotify playlist.");
@@ -91,7 +89,6 @@ function App() {
 
   const handleKeyPress = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
-      // Prevent Enter from creating a new line
       e.preventDefault();
       handleChat();
     }
@@ -99,70 +96,75 @@ function App() {
 
   return (
     <div className="App">
-      <div className="header">
-        <div className="app-title">Jemya | Playlist generator</div>
-        <div className="login-section">
-          {user ? (
-            <>
-              <span>👤 {user.name}</span>
-              <button className="login-btn" onClick={handleLogout}>
-                Logout
-              </button>
-            </>
-          ) : (
-            <button className="login-btn" onClick={handleLogin}>
-              Login with Spotify
-            </button>
-          )}
+
+      {/* Side menu container */}
+      <aside className="sidemenu">
+        <div className="side-menu-button">
+          <span>+</span>
+          New Playlist
         </div>
-        </div>
+      </aside>
+      
+      <section className="chatbox">
         
-      <div className="main-content">
+            <div className="header">
+              <div className="app-title">Jemya | Playlist generator</div>
+              <div className="login-section">
+                {user ? (
+                  <>
+                    <span>{user.name}</span>
+                    <button className="login-btn" onClick={handleLogout}>
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <button className="login-btn" onClick={handleLogin}>
+                    Login with Spotify
+                  </button>
+                )}
+              </div>
+            </div>
+
         {step === 2 && (
           <div className="gpt-playlist-section">
             <h3>Playlist Suggestion</h3>
-
             {beforeText && <p>{beforeText}</p>}
-
-            <div className="tracks">
-              <TracksTable data={gptReply} />
-            </div>
-
+            {gptReply && (
+              <div className="tracks">
+                <TracksTable data={gptReply} />
+              </div>
+            )}
             {afterText && <p>{afterText}</p>}
 
-            <button className="submit-button" onClick={handleConfirm} disabled={loading}>
-              Approve & Create Playlist
-            </button>
-          </div>
-        )}
+            {gptReply && (
+              <button className="submit-button" onClick={handleConfirm} disabled={loading}>
+                Approve & Create Playlist
+              </button>
+            )}
+              </div>
+            
+            )}
 
-        {step === 3 && (
-          <div className="playlist-created-section">
-              <a href={playlistUrl} target="_blank" rel="noopener noreferrer">Open Playlist on Spotify</a>
-            <div className="tracks">
-              <h4>Tracks:</h4>
-              <TracksTable data={tracks} />
-            </div>
-          </div>
-        )}
+            {step === 3 && (
+              <div className="playlist-created-section">
+                <a href={playlistUrl} target="_blank" rel="noopener noreferrer">
+                  Open Playlist on Spotify
+                </a>
+                <div className="tracks">
+                  <h4>Tracks:</h4>
+                  <TracksTable data={tracks} />
+                </div>
+              </div>
+            )}
 
-        {error && <p className="error">{error}</p>}
-      </div>
+            {error && <p className="error">{error}</p>}
 
-      {/* Footer with only one prompt input */}
-      <div className="footer">
         <div className="prompt-container">
-          <textarea
-            className="prompt-input"
-            rows="4"
-            placeholder="Describe your mood, vibe, or activity..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyPress={handleKeyPress} // Trigger on Enter
-          />
+          <textarea className="prompt-input-textarea" rows="4" placeholder="Describe your mood, vibe, or activity..." value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyPress={handleKeyPress} />
         </div>
-      </div>
-      </div>
+        
+      </section>
+    </div>
   );
 }
 

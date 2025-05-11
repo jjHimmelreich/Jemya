@@ -74,7 +74,7 @@ def get_user_info(token_info):
 
 ######################################################################
 
-def generate_playlist(token_info, tracks_list):
+def generate_playlist(token_info, playlist_name=None, tracks_list=[]):
     """
     Generate a Spotify playlist from list of tracks
     :param token_info: Spotify token info (access token, refresh token)
@@ -106,8 +106,10 @@ def generate_playlist(token_info, tracks_list):
 
 
     # Create playlist
-    playlist_name = f"Jemya: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    playlist = sp.user_playlist_create(sp.current_user()['id'], playlist_name, public=True)
+    p_name = playlist_name if playlist_name else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    p_name = utils.add_prefix_if_missing('Jemya: ', p_name)
+
+    playlist = sp.user_playlist_create(sp.current_user()['id'], p_name, public=True)
     
     # Add tracks to playlist
     playlist_id = playlist['id']

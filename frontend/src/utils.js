@@ -1,5 +1,6 @@
 // utils.js
 export function extractJsonAndText(response) {
+  debugger;
     const jsonMatch = response.match(/```json([\s\S]*?)```/);
     if (!jsonMatch) {
       return {
