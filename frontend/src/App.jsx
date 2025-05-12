@@ -8,6 +8,7 @@ import "./App.css";
 import { extractJsonAndText } from "./utils";
 
 function App() {
+
   const [prompt, setPrompt] = useState("");
   const [gptReply, setGptReply] = useState("");
   const [tracks, setTracks] = useState([]);
@@ -24,17 +25,19 @@ function App() {
 
   useEffect(() => {
     fetch("/me")
-      .then((res) => {
-        if (!res.ok) throw new Error("Not logged in");
-        return res.json();
-      })
+      .then((res) => { if (!res.ok) throw new Error("Not logged in"); return res.json();})
       .then((data) => {
         setUser({ name: data.user_name });
+        getPlaylists(); // Call after confirming the user is logged in
       })
-      .catch(() => {
-        setUser(null);
-      });
+      .catch(() => { setUser(null); });
   }, []);
+
+  function getPlaylists() { 
+    fetch("/playlists") // Get list of user playlists
+      .then(res => res.json())
+      .then(data => console.log(data))
+  }
 
   const handleLogin = () => {
     window.location.href = "http://localhost:5555/login";
@@ -81,7 +84,7 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const res = await axios.post("/confirm-playlist");
+      const res = await axios.post("/playlist"); // Confirm suggested playlist
       setTracks(res.data.tracks);
       setPlaylistUrl(res.data.playlist_url);
       setStep(3);
@@ -102,7 +105,7 @@ function App() {
   const handleNewPlaylist = async () => { 
     console.log('Creating new playlist');
     try {
-      const res = await axios.post("/create-playlist", {"name": playlistName});
+      const res = await axios.put("/playlist", {"name": playlistName}); // Creaate new empty playlist
       setTracks(res.data.tracks);
       setPlaylistUrl(res.data.playlist_url);
       setStep(3);

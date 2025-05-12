@@ -135,3 +135,20 @@ def generate_playlist(token_info, playlist_name=None, tracks_list=[]):
     # Return playlist URL and track details
     playlist_url = playlist['external_urls']['spotify']
     return playlist_url, playlist_id, tracks
+
+def get_user_playlists(token_info):
+    sp = init(token_info)
+    playlists = []
+    offset = 0
+    limit = 50  # Spotify API max limit per request
+    
+    while True:
+        response = sp.current_user_playlists(offset=offset, limit=limit)
+        playlists.extend(response['items'])
+
+        if len(response['items']) < limit:
+            break  # No more playlists to fetch
+
+        offset += limit  # Move to the next page
+
+    return playlists
