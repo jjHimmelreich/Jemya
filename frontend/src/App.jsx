@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import TracksTable from "./TracksTable";
+import NewPlaylistPrompt from "./NewPlaylistPrompt";
+
 import axios from "axios";
 import "./normal.css";
 import "./App.css";
@@ -16,6 +18,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [beforeText, setBeforeText] = useState("");
   const [afterText, setAfterText] = useState("");
+  const [showPromptInput, setShowPromptInput] = useState(false);
+  const [playlistName, setPlaylistName] = useState("");
+
 
   useEffect(() => {
     fetch("/me")
@@ -94,19 +99,50 @@ function App() {
     }
   };
 
+  const handleNewPlaylist = async () => { 
+    console.log('Creating new playlist');
+    try {
+      const res = await axios.post("/create-playlist", {"name": playlistName});
+      setTracks(res.data.tracks);
+      setPlaylistUrl(res.data.playlist_url);
+      setStep(3);
+    } catch (err) {
+      console.error(err);
+      setError("Error creating Spotify playlist.");
+    }
+  }
+
+  const handleCancel = () => {
+    setShowPromptInput(false);
+  };
+  
   return (
     <div className="App">
 
       {/* Side menu container */}
       <aside className="sidemenu">
-        <div className="side-menu-button">
+        <div className="side-menu-button" onClick={() => setShowPromptInput(true)}>
           <span>+</span>
           New Playlist
-        </div>
+          </div>
       </aside>
       
       <section className="chatbox">
         
+          {showPromptInput && (
+            <div className="modal-overlay">
+              <div className="modal-content">
+              <NewPlaylistPrompt
+                playlistName={playlistName}
+                setPlaylistName={setPlaylistName}
+                onCreate={handleNewPlaylist}
+                onCancel={handleCancel}
+              />
+              </div>
+            </div>
+          )}
+
+
             <div className="header">
               <div className="app-title">Jemya | Playlist generator</div>
               <div className="login-section">
