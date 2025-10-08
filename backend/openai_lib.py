@@ -5,7 +5,7 @@ from openai import OpenAI
 import conf
 
 os.environ['OPENAI_API_KEY'] = conf.OPENAI_API_KEY
-model="gpt-5"  # "gpt-5-mini
+model="gpt-4o"  # "gpt-4o" gpt-4o-mini
 
 client = OpenAI()
 
