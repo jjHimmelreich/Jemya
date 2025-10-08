@@ -492,150 +492,65 @@ class SpotifyManager:
             return []
     
     def generate_search_strategies(self, track_name: str, artist_name: str) -> List[str]:
-        """Generate comprehensive search strategies for track and artist"""
-        # Clean up track name - remove artist name if it's redundantly included
-        clean_track_name = track_name
-        if artist_name.lower() in track_name.lower():
-            # Remove artist name from track name if present
-            words_to_remove = artist_name.split(',')[0].strip().split()
-            for word in words_to_remove:
-                if len(word) > 2:  # Only remove meaningful words
-                    clean_track_name = clean_track_name.replace(word, '').strip()
-                    clean_track_name = ' '.join(clean_track_name.split())  # Clean extra spaces
-        
-        # Clean up artist name
-        clean_artist_name = artist_name
-        # Handle common AI mistakes
-        artist_corrections = {
-            'skrjabin': 'scriabin',
-            'skryabin': 'scriabin',
-            'the beatles, violin': 'the beatles',
-            'to life': '',  # This is often wrong for Hava Nagila
-        }
-        
-        for wrong, correct in artist_corrections.items():
-            if wrong in clean_artist_name.lower():
-                clean_artist_name = correct if correct else clean_artist_name
-        
-        # Generate comprehensive search strategies
+        """Generate search strategies for track and artist"""
+        # Generate search strategies
         search_strategies = [
-            # Strategy 1: Exact search with quotes (original)
+            # Strategy 1: Exact search with quotes
             f"track:\"{track_name}\" artist:\"{artist_name}\"",
-            # Strategy 2: Exact search with quotes (cleaned)
-            f"track:\"{clean_track_name}\" artist:\"{clean_artist_name}\"" if clean_track_name != track_name or clean_artist_name != artist_name else None,
-            # Strategy 3: Search without quotes (original)
+            # Strategy 2: Search without quotes
             f"track:{track_name} artist:{artist_name}",
-            # Strategy 4: Search without quotes (cleaned)
-            f"track:{clean_track_name} artist:{clean_artist_name}" if clean_track_name != track_name or clean_artist_name != artist_name else None,
-            # Strategy 5: Simple combined search (original)
+            # Strategy 3: Simple combined search
             f"\"{track_name}\" \"{artist_name}\"",
-            # Strategy 6: Simple combined search (cleaned) 
-            f"\"{clean_track_name}\" \"{clean_artist_name}\"" if clean_track_name != track_name or clean_artist_name != artist_name else None,
-            # Strategy 7: Just track and artist names (original)
+            # Strategy 4: Just track and artist names
             f"{track_name} {artist_name}",
-            # Strategy 8: Just track and artist names (cleaned)
-            f"{clean_track_name} {clean_artist_name}" if clean_track_name != track_name or clean_artist_name != artist_name else None,
-            # Strategy 9: Try with first artist only if comma-separated (original)
+            # Strategy 5: Try with first artist only if comma-separated
             f"{track_name} {artist_name.split(',')[0].strip()}" if ',' in artist_name else None,
-            # Strategy 10: Try with first artist only if comma-separated (cleaned)
-            f"{clean_track_name} {clean_artist_name.split(',')[0].strip()}" if ',' in clean_artist_name and (clean_track_name != track_name or clean_artist_name != artist_name) else None,
-            # Strategy 11: Just track name (for hard to find tracks)
+            # Strategy 6: Just track name (for hard to find tracks)
             f"\"{track_name}\"",
-            # Strategy 12: Just cleaned track name
-            f"\"{clean_track_name}\"" if clean_track_name != track_name else None,
-            # Strategy 13: Track name with common classical terms
-            f"{track_name} classical" if any(word in track_name.lower() for word in ['concerto', 'sonata', 'prelude', 'nocturne', 'gymnopedie']) else None,
-            # Strategy 14: Track name with jazz terms
-            f"{track_name} jazz" if any(word in artist_name.lower() for word in ['django', 'louis', 'armstrong', 'reinhardt']) else None,
-            # Strategy 15: Final fallback - just original track name without quotes (broad search)
+            # Strategy 7: Final fallback - just track name without quotes
             f"{track_name}",
-            # Strategy 16: Final fallback - just cleaned track name without quotes
-            f"{clean_track_name}" if clean_track_name != track_name else None,
-            # Strategy 17: Track name without common suffixes
-            track_name.replace(" (Instrumental)", "").replace(" - Instrumental", "").strip() if any(suffix in track_name for suffix in [" (Instrumental)", " - Instrumental"]) else None,
-            # Strategy 18: Cleaned track name without common suffixes
-            clean_track_name.replace(" (Instrumental)", "").replace(" - Instrumental", "").strip() if clean_track_name != track_name and any(suffix in clean_track_name for suffix in [" (Instrumental)", " - Instrumental"]) else None
         ]
         
         # Remove None strategies and duplicates
         return list(dict.fromkeys([s for s in search_strategies if s is not None]))
     
     def search_track_with_flexible_matching(self, sp: spotipy.Spotify, track_name: str, artist_name: str) -> Optional[Dict[str, Any]]:
-        """Search for a track using comprehensive strategies and flexible matching"""
+        """Search for a track using strategies and flexible matching"""
         search_strategies = self.generate_search_strategies(track_name, artist_name)
-        
-        # Pre-calculate cleaned values for matching
-        clean_track_name = track_name
-        if artist_name.lower() in track_name.lower():
-            words_to_remove = artist_name.split(',')[0].strip().split()
-            for word in words_to_remove:
-                if len(word) > 2:
-                    clean_track_name = clean_track_name.replace(word, '').strip()
-                    clean_track_name = ' '.join(clean_track_name.split())
-        
-        clean_artist_name = artist_name
-        artist_corrections = {
-            'skrjabin': 'scriabin',
-            'skryabin': 'scriabin',
-            'the beatles, violin': 'the beatles',
-            'to life': '',
-        }
-        for wrong, correct in artist_corrections.items():
-            if wrong in clean_artist_name.lower():
-                clean_artist_name = correct if correct else clean_artist_name
         
         try:
             for search_query in search_strategies:
-                results = sp.search(q=search_query, type='track', limit=5)
+                results = sp.search(q=search_query, type='track', limit=1)
                 
                 if results['tracks']['items']:
-                    # Look for best match among results
-                    for candidate in results['tracks']['items']:
-                        candidate_name = candidate['name'].lower()
-                        candidate_artists = ' '.join([artist['name'].lower() for artist in candidate['artists']])
-                        
-                        # More flexible matching for track names
-                        original_name_lower = track_name.lower()
-                        clean_name_lower = clean_track_name.lower()
-                        
-                        name_match = (
-                            # Exact matches
-                            original_name_lower in candidate_name or 
-                            candidate_name in original_name_lower or
-                            clean_name_lower in candidate_name or
-                            candidate_name in clean_name_lower or
-                            # Partial matches for long classical titles (3+ letter words)
-                            any(word in candidate_name for word in original_name_lower.split() if len(word) > 3) or
-                            any(word in candidate_name for word in clean_name_lower.split() if len(word) > 3) or
-                            # Remove common prefixes/suffixes and try again
-                            any(word in candidate_name for word in original_name_lower.replace(' (instrumental)', '').replace(' - ', ' ').split() if len(word) > 3)
-                        )
-                        
-                        # More flexible matching for artists
-                        original_artist_lower = artist_name.lower()
-                        clean_artist_lower = clean_artist_name.lower()
-                        
-                        artist_match = (
-                            # Direct matches
-                            original_artist_lower in candidate_artists or
-                            candidate_artists in original_artist_lower or
-                            clean_artist_lower in candidate_artists or
-                            candidate_artists in clean_artist_lower or
-                            # Partial artist matches
-                            any(artist.strip().lower() in candidate_artists 
-                                for artist in original_artist_lower.split(',') if len(artist.strip()) > 2) or
-                            any(artist.strip().lower() in candidate_artists 
-                                for artist in clean_artist_lower.split(',') if len(artist.strip()) > 2) or
-                            # For problematic artists, just accept if track name is very close
-                            (name_match and any(bad_artist in original_artist_lower for bad_artist in ['to life', 'midnight string', 'violin'])) or
-                            # For fallback track-only searches, be more flexible with artist matching
-                            (search_query == track_name or search_query == clean_track_name or 
-                             search_query == track_name.replace(" (Instrumental)", "").replace(" - Instrumental", "").strip() or
-                             search_query == clean_track_name.replace(" (Instrumental)", "").replace(" - Instrumental", "").strip())
-                        )
-                        
-                        if name_match and artist_match:
-                            return candidate
+                    candidate = results['tracks']['items'][0]
+                    candidate_name = candidate['name'].lower()
+                    candidate_artists = ' '.join([artist['name'].lower() for artist in candidate['artists']])
+                    
+                    # Flexible matching for track names
+                    original_name_lower = track_name.lower()
+                    
+                    name_match = (
+                        original_name_lower in candidate_name or 
+                        candidate_name in original_name_lower
+                    )
+                    
+                    # Flexible matching for artists
+                    original_artist_lower = artist_name.lower()
+                    
+                    artist_match = (
+                        # Direct matches
+                        original_artist_lower in candidate_artists or
+                        candidate_artists in original_artist_lower or
+                        # Partial artist matches
+                        any(artist.strip().lower() in candidate_artists 
+                            for artist in original_artist_lower.split(',') if len(artist.strip()) > 2) or
+                        # For fallback track-only searches, be more flexible with artist matching
+                        (search_query == f'"{track_name}"' or search_query == track_name)
+                    )
+                    
+                    if name_match and artist_match:
+                        return candidate
             
             return None
             
