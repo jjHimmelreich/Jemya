@@ -1,497 +1,38 @@
+"""
+Jemya - AI Playlist Generator
+Main Streamlit application file (refactored version)
+"""
+
 import streamlit as st
-from openai import OpenAI
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import time
-import json
-import os
 import base64
-import conf
 
-# Spotify Configuration
-CLIENT_ID = conf.CLIENT_ID
-CLIENT_SECRET = conf.CLIENT_SECRET
-REDIRECT_URI = conf.REDIRECT_URI
+# Import our custom modules
+from conversation_manager import ConversationManager
+from spotify_manager import SpotifyManager
+from ai_manager import AIManager
 
-OPENAI_API_KEY = conf.OPENAI_API_KEY
+# Initialize managers
+conversation_manager = ConversationManager()
+spotify_manager = SpotifyManager()
+ai_manager = AIManager()
 
-# Initialize OpenAI client with API key from secrets
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Spotify OAuth setup
-def get_spotify_oauth():
-    return SpotifyOAuth(
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        redirect_uri=REDIRECT_URI,
-        scope="user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state"
-    )
-
-def refresh_token_if_needed():
-    """Refresh Spotify token if expired and save to session state"""
-    if not st.session_state.token_info:
-        return None
-        
-    token_info = st.session_state.token_info
-    
-    # Check if token exists and has expiration info
-    if not isinstance(token_info, dict) or 'expires_at' not in token_info:
-        return token_info
-    
-    current_time = time.time()
-    # Only refresh if token is actually expired (with small buffer)
-    if current_time > (token_info['expires_at'] - 30):
-        try:
-            print("DEBUG: Token expired, refreshing...")
-            sp_oauth = get_spotify_oauth()
-            refreshed_token = sp_oauth.refresh_access_token(token_info['refresh_token'])
-            # Save refreshed token back to session state
-            st.session_state.token_info = refreshed_token
-            st.session_state.last_token_check = current_time
-            print("DEBUG: Token refreshed and saved to session")
-            return refreshed_token
-        except Exception as e:
-            print(f"ERROR: Failed to refresh token: {e}")
-            return token_info
-    else:
-        # Only print debug message once per session or every 5 minutes
-        if not hasattr(st.session_state, 'last_token_check') or (current_time - st.session_state.last_token_check) > 300:
-            print("DEBUG: Token still valid, no refresh needed")
-            st.session_state.last_token_check = current_time
-        return token_info
-
-def get_user_info():
-    """Get Spotify user information"""
-    token_info = refresh_token_if_needed()
-    if token_info and isinstance(token_info, dict) and 'access_token' in token_info:
-        sp = spotipy.Spotify(auth=token_info['access_token'])
-        user_info = sp.current_user()
-        return user_info
-    return None
-
-def get_user_playlists():
-    """Get user's Spotify playlists with caching to prevent constant refetching"""
-    # Check if playlists are already cached and still valid
-    if ('cached_playlists' in st.session_state and 
-        'playlists_cache_time' in st.session_state and
-        time.time() - st.session_state.playlists_cache_time < 300):  # Cache for 5 minutes
-        print("DEBUG: Using cached playlists")
-        return st.session_state.cached_playlists
-    
-    print(f"DEBUG: get_user_playlists called - fetching fresh data")
-    token_info = refresh_token_if_needed()
-    if token_info and isinstance(token_info, dict) and 'access_token' in token_info:
-        try:
-            print("DEBUG: Valid token, creating Spotify client...")
-            sp = spotipy.Spotify(auth=token_info['access_token'])
-            print("DEBUG: Created Spotify client, fetching playlists...")
-            playlists = []
-            offset = 0
-            limit = 50
-            
-            while True:
-                print(f"DEBUG: Fetching playlists offset={offset}, limit={limit}")
-                response = sp.current_user_playlists(offset=offset, limit=limit)
-                print(f"DEBUG: Response type: {type(response)}, has items: {'items' in response if response else False}")
-                if response and 'items' in response:
-                    playlists.extend(response['items'])
-                    print(f"DEBUG: Added {len(response['items'])} playlists, total: {len(playlists)}")
-                    
-                    if len(response['items']) < limit:
-                        break
-                    offset += limit
-                else:
-                    break
-            
-            # Cache the results
-            st.session_state.cached_playlists = playlists
-            st.session_state.playlists_cache_time = time.time()
-            print(f"DEBUG: Returning {len(playlists)} playlists (cached)")
-            return playlists
-        except Exception as e:
-            print(f"Error in get_user_playlists: {e}")
-            return []
-    print("DEBUG: Invalid token or no token, returning empty list")
-    return []
-
-def get_playlist_tracks(playlist_id):
-    """Get all tracks from a specific playlist"""
-    print(f"DEBUG: get_playlist_tracks called for playlist {playlist_id}")
-    token_info = refresh_token_if_needed()
-    if token_info and isinstance(token_info, dict) and 'access_token' in token_info:
-        try:
-            print("DEBUG: Valid token, creating Spotify client for tracks...")
-            sp = spotipy.Spotify(auth=token_info['access_token'])
-            
-            tracks = []
-            offset = 0
-            limit = 100
-            
-            while True:
-                print(f"DEBUG: Fetching tracks offset={offset}, limit={limit}")
-                response = sp.playlist_tracks(playlist_id, offset=offset, limit=limit)
-                print(f"DEBUG: Tracks response type: {type(response)}, has items: {'items' in response if response else False}")
-                
-                if response and 'items' in response:
-                    for item in response['items']:
-                        if item and item.get('track'):
-                            track = item['track']
-                            if track and track.get('name'):  # Only add valid tracks
-                                # Extract track information
-                                external_urls = track.get('external_urls', {})
-                                track_info = {
-                                    'id': track.get('id', ''),
-                                    'name': track.get('name', 'Unknown'),
-                                    'artists': ', '.join([artist.get('name', 'Unknown') for artist in track.get('artists', [])]),
-                                    'album': track.get('album', {}).get('name', 'Unknown'),
-                                    'duration_ms': track.get('duration_ms', 0),
-                                    'popularity': track.get('popularity', 0),
-                                    'explicit': track.get('explicit', False),
-                                    'spotify_url': external_urls.get('spotify', '')
-                                }
-                                tracks.append(track_info)
-                    
-                    print(f"DEBUG: Added {len(response['items'])} track items, total valid tracks: {len(tracks)}")
-                    
-                    if len(response['items']) < limit:
-                        break
-                    offset += limit
-                else:
-                    break
-            
-            print(f"DEBUG: Returning {len(tracks)} tracks")
-            return tracks
-        except Exception as e:
-            print(f"Error in get_playlist_tracks: {e}")
-            return []
-    print("DEBUG: Invalid token for tracks, returning empty list")
-    return []
-
-def format_time_human_readable(time_ms):
-    """Convert milliseconds to human-readable time format (e.g., '1h 23m', '3m 45s', '30s')"""
-    if time_ms == 0:
-        return "0s"
-    
-    total_minutes = time_ms // 60000
-    seconds = (time_ms % 60000) // 1000
-    
-    if total_minutes >= 60:
-        # For durations over 1 hour, don't show seconds
-        hours = total_minutes // 60
-        remaining_minutes = total_minutes % 60
-        
-        if remaining_minutes > 0:
-            return f"{hours}h {remaining_minutes}m"
-        else:
-            return f"{hours}h"
-    else:
-        # For durations under 1 hour, show seconds
-        if seconds > 0:
-            return f"{total_minutes}m {seconds}s"
-        elif total_minutes > 0:
-            return f"{total_minutes}m"
-        else:
-            return f"{seconds}s"
-
-def apply_playlist_changes(playlist_id, track_suggestions):
-    """Apply AI-suggested changes to a Spotify playlist"""
-    token_info = refresh_token_if_needed()
-    if not token_info or not isinstance(token_info, dict) or 'access_token' not in token_info:
-        return False, "No valid Spotify authentication"
-    
-    try:
-        sp = spotipy.Spotify(auth=token_info['access_token'])
-        
-        # Use OpenAI to extract structured track data from suggestions
-        combined_suggestions = "\n".join(track_suggestions)
-        
-        # Create a structured prompt to extract track information
-        extract_prompt = combined_suggestions + """
-
-Please analyze the conversation above and extract all the suggested tracks for the Spotify playlist. 
-Please provide me with the tracks in a structured format.
-Please format the response as a JSON object so it can be easily parsed with Python.
-It should be an objects list where the objects are in the form of { "track_name": "", "artist": "" }.
-Only include actual song titles and artist names, not descriptions or explanations.
-"""
-
-        try:
-            # Call OpenAI to extract structured track data
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts track information from playlist suggestions."},
-                    {"role": "user", "content": extract_prompt}
-                ]
-            )
-            
-            message_content = response.choices[0].message.content
-            print(f"DEBUG: OpenAI track extraction response: {message_content}")
-            
-            # Parse the JSON response (similar to backend/openai_lib.py approach)
-            import re
-            import json
-            
-            # Extract JSON from code blocks
-            pattern = r"```(.*?)```"
-            matches = re.findall(pattern, message_content, re.DOTALL)
-            playlist_data = None
-            
-            for match in matches:
-                try:
-                    # Clean up the JSON string
-                    json_str = match.replace('json', '').strip()
-                    playlist_data = json.loads(json_str)
-                    break
-                except json.JSONDecodeError:
-                    continue
-            
-            # If no code block found, try to parse the entire response as JSON
-            if not playlist_data:
-                try:
-                    playlist_data = json.loads(message_content)
-                except json.JSONDecodeError:
-                    return False, "Could not parse track suggestions from AI response"
-            
-            # Extract tracks from the parsed data
-            tracks = []
-            if isinstance(playlist_data, list):
-                tracks = playlist_data
-            elif isinstance(playlist_data, dict) and 'playlist' in playlist_data:
-                tracks = playlist_data['playlist']
-            elif isinstance(playlist_data, dict) and 'tracks' in playlist_data:
-                tracks = playlist_data['tracks']
-            
-            if not tracks:
-                return False, "No tracks found in AI response"
-                
-        except Exception as e:
-            print(f"ERROR: OpenAI extraction failed: {e}")
-            return False, f"Failed to extract tracks from AI suggestions: {str(e)}"
-        
-        # Now search for each track on Spotify
-        track_uris = []
-        tracks_not_found = []
-        
-        for track_data in tracks:
-            if not isinstance(track_data, dict):
-                continue
-                
-            track_name = track_data.get('track_name', '').strip()
-            artist = track_data.get('artist', '').strip()
-            
-            if not track_name or not artist:
-                continue
-            
-            # Search for the track on Spotify
-            query = f"track:{track_name} artist:{artist}"
-            try:
-                results = sp.search(q=query, type='track', limit=1)
-                if results['tracks']['items']:
-                    track_uri = results['tracks']['items'][0]['uri']
-                    track_uris.append(track_uri)
-                else:
-                    tracks_not_found.append(f"{track_name} - {artist}")
-            except Exception as e:
-                print(f"Error searching for track {track_name} - {artist}: {e}")
-                tracks_not_found.append(f"{track_name} - {artist}")
-        
-        if track_uris:
-            # Add tracks to the playlist (using same method as backend)
-            user_id = sp.current_user()['id']
-            sp.user_playlist_add_tracks(user_id, playlist_id, track_uris)
-            success_msg = f"Successfully added {len(track_uris)} tracks to playlist"
-            if tracks_not_found:
-                success_msg += f". Could not find {len(tracks_not_found)} tracks: {', '.join(tracks_not_found[:3])}"
-                if len(tracks_not_found) > 3:
-                    success_msg += f" and {len(tracks_not_found) - 3} more"
-            return True, success_msg
-        else:
-            return False, "No tracks found to add to playlist"
-            
-    except Exception as e:
-        print(f"Error applying playlist changes: {e}")
-        return False, f"Error applying changes: {str(e)}"
-
-# Conversation management functions
-def get_conversation_file_path(user_id, playlist_id):
-    """Generate file path for conversation storage"""
-    conversations_dir = "conversations"
-    if not os.path.exists(conversations_dir):
-        os.makedirs(conversations_dir)
-    return os.path.join(conversations_dir, f"{user_id}_{playlist_id}.json")
-
-def get_session_file_path(user_id):
-    """Generate file path for session storage"""
-    conversations_dir = "conversations"
-    if not os.path.exists(conversations_dir):
-        os.makedirs(conversations_dir)
-    return os.path.join(conversations_dir, f"{user_id}_session.json")
-
-def save_user_session(user_id, current_playlist_id=None, current_playlist_name=None):
-    """Save user's last session state"""
-    try:
-        file_path = get_session_file_path(user_id)
-        session_data = {
-            "user_id": user_id,
-            "last_playlist_id": current_playlist_id,
-            "last_playlist_name": current_playlist_name,
-            "last_login_time": time.time()
-        }
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(session_data, f, ensure_ascii=False, indent=2)
-        print(f"DEBUG: Saved session for user {user_id}, last playlist: {current_playlist_name}")
-    except Exception as e:
-        print(f"ERROR: Failed to save user session: {e}")
-
-def load_user_session(user_id):
-    """Load user's last session state"""
-    try:
-        file_path = get_session_file_path(user_id)
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                session_data = json.load(f)
-            print(f"DEBUG: Loaded session for user {user_id}, last playlist: {session_data.get('last_playlist_name')}")
-            return session_data
-    except Exception as e:
-        print(f"ERROR: Failed to load user session: {e}")
-    return None
-
-def save_conversation(user_id, playlist_id, messages, playlist_snapshot=None):
-    """Save conversation to file with optional playlist snapshot"""
-    try:
-        file_path = get_conversation_file_path(user_id, playlist_id)
-        
-        # Try to load existing data to preserve playlist snapshot
-        existing_snapshot = None
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    existing_data = json.load(f)
-                    existing_snapshot = existing_data.get('playlist_snapshot')
-            except Exception as e:
-                print(f"DEBUG: Could not load existing snapshot: {e}")
-        
-        conversation_data = {
-            "user_id": user_id,
-            "playlist_id": playlist_id,
-            "messages": messages,
-            "last_updated": time.time()
-        }
-        
-        # Use provided snapshot, or preserve existing one
-        if playlist_snapshot:
-            conversation_data["playlist_snapshot"] = playlist_snapshot
-            print(f"DEBUG: Saving with new playlist snapshot")
-        elif existing_snapshot:
-            conversation_data["playlist_snapshot"] = existing_snapshot
-            print(f"DEBUG: Preserving existing playlist snapshot")
-            
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(conversation_data, f, ensure_ascii=False, indent=2)
-        print(f"DEBUG: Saved conversation for user {user_id}, playlist {playlist_id}")
-    except Exception as e:
-        print(f"ERROR: Failed to save conversation: {e}")
-
-def get_playlist_snapshot(playlist, tracks):
-    """Create a snapshot of playlist for change detection"""
-    return {
-        "track_count": len(tracks),
-        "track_ids": [track.get('id', '') for track in tracks if track.get('id')],
-        "playlist_name": playlist.get('name', ''),
-        "last_modified": playlist.get('snapshot_id', ''),  # Spotify's snapshot_id changes when playlist is modified
-        "total_duration": sum(track.get('duration_ms', 0) for track in tracks)
-    }
-
-def has_playlist_changed(user_id, playlist_id, current_playlist, current_tracks):
-    """Check if playlist content has changed since last save"""
-    try:
-        file_path = get_conversation_file_path(user_id, playlist_id)
-        if not os.path.exists(file_path):
-            return True  # No previous data, consider it changed
-            
-        with open(file_path, 'r', encoding='utf-8') as f:
-            conversation_data = json.load(f)
-            
-        saved_snapshot = conversation_data.get('playlist_snapshot')
-        if not saved_snapshot:
-            return True  # No snapshot saved, consider it changed
-            
-        current_snapshot = get_playlist_snapshot(current_playlist, current_tracks)
-        
-        print(f"DEBUG: Comparing playlist snapshots for {playlist_id}:")
-        print(f"DEBUG: Saved snapshot: {saved_snapshot}")
-        print(f"DEBUG: Current snapshot: {current_snapshot}")
-        
-        # Compare key indicators of playlist changes
-        track_count_changed = saved_snapshot.get('track_count') != current_snapshot.get('track_count')
-        snapshot_id_changed = saved_snapshot.get('last_modified') != current_snapshot.get('last_modified')
-        name_changed = saved_snapshot.get('playlist_name') != current_snapshot.get('playlist_name')
-        duration_changed = saved_snapshot.get('total_duration') != current_snapshot.get('total_duration')
-        
-        changed = track_count_changed or snapshot_id_changed or name_changed or duration_changed
-        
-        if changed:
-            print(f"DEBUG: Playlist {playlist_id} has changed:")
-            print(f"  - Track count: {saved_snapshot.get('track_count')} -> {current_snapshot.get('track_count')} (changed: {track_count_changed})")
-            print(f"  - Snapshot ID: {saved_snapshot.get('last_modified')} -> {current_snapshot.get('last_modified')} (changed: {snapshot_id_changed})")
-            print(f"  - Name: {saved_snapshot.get('playlist_name')} -> {current_snapshot.get('playlist_name')} (changed: {name_changed})")
-            print(f"  - Duration: {saved_snapshot.get('total_duration')} -> {current_snapshot.get('total_duration')} (changed: {duration_changed})")
-        else:
-            print(f"DEBUG: Playlist {playlist_id} unchanged since last load")
-            
-        return changed
-        
-    except Exception as e:
-        print(f"ERROR: Failed to check playlist changes: {e}")
-        return True  # If we can't compare, assume it changed
-
-def load_conversation(user_id, playlist_id):
-    """Load conversation from file"""
-    try:
-        file_path = get_conversation_file_path(user_id, playlist_id)
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                conversation_data = json.load(f)
-            print(f"DEBUG: Loaded conversation for user {user_id}, playlist {playlist_id} with {len(conversation_data.get('messages', []))} messages")
-            return conversation_data.get('messages', [])
-    except Exception as e:
-        print(f"ERROR: Failed to load conversation: {e}")
-    return []
-
-def has_conversation_changed(user_id, playlist_id, current_messages):
-    """Check if current conversation has changed from last saved version"""
-    try:
-        saved_messages = load_conversation(user_id, playlist_id)
-        # Compare message count and content
-        if len(saved_messages) != len(current_messages):
-            return True
-        
-        # Compare each message
-        for saved_msg, current_msg in zip(saved_messages, current_messages):
-            if (saved_msg.get('role') != current_msg.get('role') or 
-                saved_msg.get('content') != current_msg.get('content')):
-                return True
-        
-        return False
-    except Exception as e:
-        print(f"DEBUG: Error checking conversation changes: {e}")
-        return True  # If we can't compare, assume it changed to be safe
 
 def switch_to_playlist_conversation(user_id, playlist_id, playlist_name):
     """Switch to a specific playlist conversation"""
     # Save current conversation if there's an active playlist and it has changed
     if 'current_playlist_id' in st.session_state and st.session_state.current_playlist_id:
         current_user_id = st.session_state.get('current_user_id')
-        if current_user_id and has_conversation_changed(current_user_id, st.session_state.current_playlist_id, st.session_state.messages):
-            save_conversation(current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
+        if current_user_id and conversation_manager.has_conversation_changed(current_user_id, st.session_state.current_playlist_id, st.session_state.messages):
+            conversation_manager.save_conversation(current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
             print(f"DEBUG: Saved changed conversation for playlist {st.session_state.current_playlist_id}")
         elif current_user_id:
             print(f"DEBUG: No changes detected, skipping save for playlist {st.session_state.current_playlist_id}")
     
     # Load conversation for the new playlist
-    messages = load_conversation(user_id, playlist_id)
+    messages = conversation_manager.load_conversation(user_id, playlist_id)
     
     # Update session state
     st.session_state.messages = messages
@@ -500,31 +41,12 @@ def switch_to_playlist_conversation(user_id, playlist_id, playlist_name):
     st.session_state.current_user_id = user_id
     
     # Save the user's session state
-    save_user_session(user_id, playlist_id, playlist_name)
+    conversation_manager.save_user_session(user_id, playlist_id, playlist_name)
     
     # Add system and welcome messages if this is a new conversation
     if not messages:
         # Add system message for playlist enrichment specialist
-        system_message = ("You are Jemya, a playlist enrichment specialist with deep expertise in music curation and seamless track integration. Your primary role is to analyze existing playlists and intelligently weave new tracks into the existing structure, creating smooth musical transitions.\n\n"
-                         "Core Capabilities:\n"
-                         "• PLAYLIST ANALYSIS: Identify musical patterns, themes, genres, moods, energy levels, tempo, key signatures, and temporal flow\n"
-                         "• INTELLIGENT TRACK INSERTION: Insert new tracks at optimal positions within the existing playlist structure (between, before, or after specific tracks)\n"
-                         "• TRANSITION MASTERY: When placing tracks between contrasting songs, select bridging tracks that create smooth musical transitions\n"
-                         "• FLOW PRESERVATION: Maintain musical coherence by matching tempo, key, energy, and mood when inserting new tracks\n"
-                         "• CONTEXTUAL PLACEMENT: Consider each track's position relative to its neighbors for optimal listening experience\n\n"
-                         "Track Insertion Strategy:\n"
-                         "• Analyze adjacent tracks (before/after) for tempo, key, energy, mood, and genre compatibility\n"
-                         "• Insert tracks that complement both neighboring songs when possible\n"
-                         "• For contrasting adjacent tracks, add 1-3 transition tracks that bridge the musical gap smoothly\n"
-                         "• Consider natural breakpoints: genre shifts, energy changes, mood transitions\n"
-                         "• Preserve intentional contrasts while smoothing jarring transitions\n"
-                         "• Explain insertion logic: why each track goes in its specific position and how it enhances the flow\n\n"
-                         "Response Format:\n"
-                         "• Present the enhanced playlist with original track numbers preserved\n"
-                         "• Mark new tracks as 'ADDED' with insertion reasoning\n"
-                         "• Use format: 'ADDED after track X: [Song] - [Artist] (bridges tempo from X to Y)'\n"
-                         "• Explain transition logic for each insertion\n"
-                         "• Highlight how additions improve overall playlist flow and listening experience")
+        system_message = ai_manager.generate_system_message(has_spotify_connection=True)
         
         st.session_state.messages.append({
             "role": "system",
@@ -540,8 +62,157 @@ def switch_to_playlist_conversation(user_id, playlist_id, playlist_name):
     
     print(f"DEBUG: Switched to conversation for playlist '{playlist_name}' ({playlist_id})")
 
+
+def preview_playlist_changes(playlist_id, track_suggestions):
+    """Preview what the final playlist will look like after applying changes"""
+    print("DEBUG: Starting preview_playlist_changes")
+    token_info = spotify_manager.refresh_spotify_token_if_needed()
+    if not token_info or not isinstance(token_info, dict) or 'access_token' not in token_info:
+        print("DEBUG: No valid token for preview")
+        return False, "No valid Spotify authentication", {}
+    
+    try:
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        print("DEBUG: Created Spotify client for preview")
+        
+        # Extract desired playlist from AI suggestions
+        try:
+            # Ensure track_suggestions is a list
+            if isinstance(track_suggestions, str):
+                track_suggestions_list = [track_suggestions]
+            else:
+                track_suggestions_list = track_suggestions
+            
+            desired_playlist = ai_manager.extract_tracks_from_ai_response(track_suggestions_list)
+            print(f"DEBUG: Extracted {len(desired_playlist) if desired_playlist else 0} tracks from AI response")
+        except Exception as e:
+            print(f"DEBUG: Error extracting tracks: {e}")
+            return False, str(e), {}
+        
+        if not desired_playlist:
+            print("DEBUG: No valid playlist found in AI response")
+            return False, "No valid playlist found in AI response", {}
+        
+        # Get current playlist info and tracks
+        current_tracks = spotify_manager.get_playlist_tracks(playlist_id)
+        playlist_info = sp.playlist(playlist_id, fields="name,owner,public")
+        
+        # Create preview tracks by searching for desired tracks
+        final_tracks = []
+        not_found_tracks = []
+        
+        for track in desired_playlist:
+            track_name = track.get('track_name', '')
+            artist_name = track.get('artist', '')
+            
+            if not track_name or not artist_name:
+                continue
+                
+            # Use the centralized search function from SpotifyManager
+            found_track = spotify_manager.search_track_with_flexible_matching(sp, track_name, artist_name)
+            
+            if found_track:
+                final_tracks.append({
+                    'name': found_track['name'],
+                    'artists': ', '.join([artist['name'] for artist in found_track['artists']]),
+                    'album': found_track['album']['name'],
+                    'duration_ms': found_track['duration_ms'],
+                    'spotify_url': found_track['external_urls'].get('spotify', ''),
+                    'is_new': True
+                })
+            else:
+                not_found_tracks.append(f"{track_name} - {artist_name}")
+        
+        # Calculate changes
+        tracks_to_add = len(final_tracks)
+        tracks_to_remove = len(current_tracks)
+        
+        preview_data = {
+            'final_tracks': final_tracks,
+            'playlist_info': playlist_info,
+            'tracks_not_found': not_found_tracks,
+            'original_suggestions': desired_playlist,  # Include original AI suggestions
+            'summary': {
+                'will_add': tracks_to_add,
+                'will_remove': tracks_to_remove,
+                'not_found': len(not_found_tracks)
+            }
+        }
+        
+        print(f"DEBUG: Preview generated - found {len(final_tracks)} tracks, {len(not_found_tracks)} not found")
+        return True, "Preview generated successfully", preview_data
+        
+    except Exception as e:
+        print(f"ERROR: Exception in preview_playlist_changes: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, f"Error previewing changes: {str(e)}", {}
+
+
+def apply_playlist_changes(playlist_id, track_suggestions):
+    """Apply AI-suggested changes by aligning playlist to desired state"""
+    token_info = spotify_manager.refresh_spotify_token_if_needed()
+    if not token_info or not isinstance(token_info, dict) or 'access_token' not in token_info:
+        return False, "No valid Spotify authentication"
+    
+    try:
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        user_id = sp.current_user()['id']
+        
+        # Extract desired playlist from AI suggestions
+        try:
+            desired_playlist = ai_manager.extract_tracks_from_ai_response(track_suggestions)
+        except Exception as e:
+            return False, str(e)
+        
+        if not desired_playlist:
+            return False, "No valid playlist found in AI response"
+        
+        # Align playlist to desired state
+        print("DEBUG: Aligning playlist to desired state...")
+        result = spotify_manager.align_playlist_to_desired_state(playlist_id, sp, desired_playlist)
+        
+        # Log the changes for audit purposes
+        change_details = {
+            'tracks_added': result['added_count'],
+            'tracks_removed': result['removed_count'],
+            'tracks_not_found': result['not_found_count'],
+            'added_tracks': result['added_tracks'],
+            'not_found_tracks': result['not_found_tracks']
+        }
+        conversation_manager.save_playlist_change_log(user_id, playlist_id, change_details)
+        
+        # Create success message
+        message_parts = []
+        if result['added_count'] > 0:
+            if result['added_count'] == 1:
+                message_parts.append("Added 1 track")
+            else:
+                message_parts.append(f"Added {result['added_count']} tracks")
+        
+        if result['removed_count'] > 0:
+            if result['removed_count'] == 1:
+                message_parts.append("Removed 1 track")
+            else:
+                message_parts.append(f"Removed {result['removed_count']} tracks")
+        
+        if message_parts:
+            final_message = " • ".join(message_parts)
+        else:
+            final_message = "Playlist aligned"
+        
+        if result['not_found_count'] > 0:
+            final_message += f" ({result['not_found_count']} tracks not found)"
+        
+        return True, final_message
+            
+    except Exception as e:
+        print(f"Error applying playlist changes: {e}")
+        return False, f"Error applying changes: {str(e)}"
+
+
+# Streamlit App Configuration
 st.set_page_config(page_title="Jemya - Playlist Generator", page_icon="🎵")
-#st.title("Jemya - Playlist Generator")
 
 # Add CSS to remove link underlines and improve button alignment
 st.markdown("""
@@ -604,10 +275,11 @@ if "current_user_id" not in st.session_state:
 # Sidebar for Spotify functionality
 st.sidebar.title("Jemya - AI Playlist Generator")
 
+
 # Handle OAuth callback
 if 'code' in st.query_params:
     code = st.query_params['code']
-    sp_oauth = get_spotify_oauth()
+    sp_oauth = spotify_manager.get_spotify_oauth()
     try:
         # Use get_cached_token instead of get_access_token with as_dict=True
         token_info = sp_oauth.get_cached_token()
@@ -618,7 +290,6 @@ if 'code' in st.query_params:
                 token_info = {'access_token': token_info}
         
         st.session_state.token_info = token_info
-        # Don't call get_user_info() here as it creates a loop - let the sidebar handle it
         st.success("Successfully logged in to Spotify!")
         # Clear the code parameter and rerun
         st.query_params.clear()
@@ -626,57 +297,62 @@ if 'code' in st.query_params:
     except Exception as e:
         st.error(f"Error during Spotify login: {str(e)}")
 
+
 # Spotify login/logout section
 if st.session_state.token_info is None:
-    st.sidebar.markdown("Connect your Spotify account to create and manage playlists.")
+    sp_oauth = spotify_manager.get_spotify_oauth()
+    auth_url = sp_oauth.get_authorize_url()
     
-    if st.sidebar.button("🔗 Login with Spotify", type="primary"):
-        sp_oauth = get_spotify_oauth()
-        auth_url = sp_oauth.get_authorize_url()
-        st.sidebar.markdown(f"[Click here to authorize with Spotify]({auth_url})")
-        st.sidebar.markdown("After authorization, you'll be redirected back to this app.")
+    # Use a link_button for direct navigation to Spotify auth
+    if st.sidebar.link_button("🔗 Login with Spotify", auth_url, type="primary"):
+        pass  # The link_button handles the redirect automatically
 else:
     # User is logged in
     user_info = st.session_state.user_info
     
     # Get user info if not available yet
     if not user_info:
-        user_info = get_user_info()
+        user_info = spotify_manager.get_user_info()
         if user_info:
             st.session_state.user_info = user_info
-            
-            # Load last session when user first logs in
-            user_id = user_info.get('id')
-            if user_id:
-                last_session = load_user_session(user_id)
+    
+    # ALWAYS check and restore session state if needed (not just on first login)
+    if user_info:
+        user_id = user_info.get('id')
+        if user_id:
+            # Check if session state needs restoration (e.g., after rerun)
+            if (not st.session_state.current_playlist_id and 
+                not st.session_state.current_playlist_name and 
+                not st.session_state.current_user_id):
+                
+                print("DEBUG: Session state appears reset, attempting restoration...")
+                last_session = conversation_manager.load_user_session(user_id)
                 if last_session and last_session.get('last_playlist_id'):
                     playlist_id = last_session.get('last_playlist_id')
                     playlist_name = last_session.get('last_playlist_name', 'Unknown Playlist')
                     
                     # Load the last conversation without showing the loading message
                     print(f"DEBUG: Restoring last session - playlist: {playlist_name}")
-                    messages = load_conversation(user_id, playlist_id)
+                    messages = conversation_manager.load_conversation(user_id, playlist_id)
                     st.session_state.messages = messages
                     st.session_state.current_playlist_id = playlist_id
                     st.session_state.current_playlist_name = playlist_name
                     st.session_state.current_user_id = user_id
-                    
-                    #st.sidebar.info(f"🔄 Restored your last session: **{playlist_name}**")
+                    print(f"DEBUG: Session state restored - playlist_id: {bool(playlist_id)}, messages: {len(messages)}")
     
     if user_info:
         st.sidebar.success(f"{user_info.get('display_name', 'User')}!")
-        #st.sidebar.write(f"**Followers:** {user_info.get('followers', {}).get('total', 0)}")
         
         # Logout button
         if st.sidebar.button("🚪 Logout"):
             # Save current session before logging out
             if st.session_state.current_user_id and st.session_state.current_playlist_id:
-                save_user_session(st.session_state.current_user_id, 
+                conversation_manager.save_user_session(st.session_state.current_user_id, 
                                 st.session_state.current_playlist_id, 
                                 st.session_state.current_playlist_name)
                 # Also save the current conversation
-                if has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages):
-                    save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
+                if conversation_manager.has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages):
+                    conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
             
             st.session_state.token_info = None
             st.session_state.user_info = None
@@ -685,7 +361,6 @@ else:
             st.session_state.current_user_id = None
             st.session_state.messages = []
             st.rerun()
-    
 
     # Show playlists
     st.sidebar.markdown("---")
@@ -710,7 +385,7 @@ else:
             st.rerun()
     
     try:
-        playlists = get_user_playlists()
+        playlists = spotify_manager.get_user_playlists()
         
         if playlists:
             # Get current user ID for filtering
@@ -863,7 +538,7 @@ else:
                         if st.button(button_label, key=f"load_{playlist_id}", help=tooltip_text, type="secondary", use_container_width=True):
                             # Get current user info for conversation management
                             if not st.session_state.user_info:
-                                st.session_state.user_info = get_user_info()
+                                st.session_state.user_info = spotify_manager.get_user_info()
                             
                             user_id = st.session_state.user_info.get('id') if st.session_state.user_info else 'unknown'
                             
@@ -873,11 +548,11 @@ else:
                             # Show loading message
                             with st.sidebar:
                                 with st.spinner(f"Loading tracks from '{playlist_name}'..."):
-                                    tracks = get_playlist_tracks(playlist_id)
+                                    tracks = spotify_manager.get_playlist_tracks(playlist_id)
                             
                             if tracks:
                                 # Check if playlist content has changed before adding to conversation
-                                if has_playlist_changed(user_id, playlist_id, playlist, tracks):
+                                if conversation_manager.has_playlist_changed(user_id, playlist_id, playlist, tracks):
                                     # Extract playlist owner information
                                     owner_data = playlist.get('owner', {})
                                     if isinstance(owner_data, dict):
@@ -904,11 +579,11 @@ else:
                                     cumulative_time_ms = 0
                                     for i, track in enumerate(tracks, 1):
                                         # Format start time using the helper function
-                                        start_time_str = format_time_human_readable(cumulative_time_ms)
+                                        start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
                                         
                                         # Get current track duration and format it
                                         duration_ms = track.get('duration_ms', 0)
-                                        duration_str = format_time_human_readable(duration_ms)
+                                        duration_str = spotify_manager.format_time_human_readable(duration_ms)
                                         
                                         # Truncate long names for table readability
                                         full_track_name = track.get('name', 'Unknown')
@@ -956,8 +631,8 @@ else:
                                     })
                                     
                                     # Save conversation with playlist snapshot
-                                    playlist_snapshot = get_playlist_snapshot(playlist, tracks)
-                                    save_conversation(user_id, playlist_id, st.session_state.messages, playlist_snapshot)
+                                    playlist_snapshot = conversation_manager.get_playlist_snapshot(playlist, tracks)
+                                    conversation_manager.save_conversation(user_id, playlist_id, st.session_state.messages, playlist_snapshot)
                                     
                                     print(f"DEBUG: Added updated playlist content to conversation")
                                 else:
@@ -994,10 +669,6 @@ else:
         st.sidebar.error(f"Error loading playlists: {str(e)}")
 
 st.sidebar.markdown("---")
-
-# Show current playlist if active
-#if st.session_state.current_playlist_name:
-#    st.info(f"🎵 Currently chatting about: **{st.session_state.current_playlist_name}**")
 
 # Show login prompt if not connected to Spotify
 if st.session_state.token_info is None:
@@ -1037,23 +708,8 @@ if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."
         st.markdown(prompt)
 
     # Prepare system message for intelligent playlist enrichment
-    system_content = ("You are Jemya, a playlist enrichment specialist who excels at intelligently inserting new tracks into existing playlists. "
-                     "Your expertise lies in analyzing track-to-track transitions, understanding musical flow, and placing new songs at optimal positions within the existing structure. "
-                     "When enriching playlists, you insert tracks between, before, or after existing songs based on tempo, key, energy, and mood compatibility. "
-                     "For contrasting adjacent tracks, you add transition songs that bridge musical gaps smoothly. "
-                     "Always explain your insertion logic: why each track goes in its specific position, how it creates better transitions, and how it enhances overall flow. "
-                     "Mark new additions as 'ADDED after track X' or 'ADDED before track Y' with reasoning for placement. "
-                     "Present results as enhanced playlist with original track numbers preserved and clear insertion explanations.")
-    
-    if st.session_state.token_info:
-        system_content += " The user is connected to Spotify, so you can suggest creating playlists and provide detailed analysis of their existing collections."
-    else:
-        system_content += " The user is not connected to Spotify yet, so encourage them to connect their account to unlock the full potential of playlist analysis and creation."
-    
-    system_message = {
-        "role": "system", 
-        "content": system_content
-    }
+    system_content = ai_manager.generate_system_message(has_spotify_connection=bool(st.session_state.token_info))
+    system_message = {"role": "system", "content": system_content}
 
     # Get assistant response
     with st.chat_message("assistant"):
@@ -1064,11 +720,11 @@ if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."
         api_messages = [system_message] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
         
         try:
-            for response_chunk in client.chat.completions.create(
-                model="gpt-4o", #"gpt-5",
+            for response_chunk in ai_manager.client.chat.completions.create(
+                model="gpt-4o",
                 messages=api_messages,
                 stream=True,
-                timeout=30,  # Add timeout
+                timeout=30,
             ):
                 full_response += (response_chunk.choices[0].delta.content or "")
                 message_placeholder.markdown(full_response + "▌")
@@ -1084,10 +740,10 @@ if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."
     
     # Auto-save conversation if we have an active playlist and changes were made
     if (st.session_state.current_playlist_id and st.session_state.current_user_id and 
-        has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)):
-        save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
+        conversation_manager.has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)):
+        conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
         # Also save the session state
-        save_user_session(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.current_playlist_name)
+        conversation_manager.save_user_session(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.current_playlist_name)
         print(f"DEBUG: Auto-saved conversation and session after assistant response")
     
     # Set flag to auto-scroll to bottom
@@ -1096,39 +752,608 @@ if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."
 # Footer with Apply Changes button
 st.markdown("---")
 
-# Show Apply Changes button only if there's an active playlist and user is logged in
-if (st.session_state.current_playlist_id and 
-    st.session_state.current_playlist_name and 
-    st.session_state.token_info and 
-    len(st.session_state.messages) > 0):
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🎵 Apply Changes to Playlist", 
-                    type="primary", 
-                    use_container_width=True,
-                    help=f"Apply AI suggestions to '{st.session_state.current_playlist_name}' on Spotify"):
-            
-            # Get AI suggestions from the conversation
-            ai_suggestions = []
-            for message in st.session_state.messages:
-                if message["role"] == "assistant":
-                    ai_suggestions.append(message["content"])
-            
-            if ai_suggestions:
-                with st.spinner("Applying changes to your Spotify playlist..."):
-                    success, message = apply_playlist_changes(
-                        st.session_state.current_playlist_id, 
-                        ai_suggestions
-                    )
-                
-                if success:
-                    st.success(f"✅ {message}")
-                    st.balloons()
-                else:
-                    st.error(f"❌ {message}")
-            else:
-                st.warning("No AI suggestions found to apply to the playlist.")
+# Initialize session state for preview and apply tracking (always initialize)
+if 'show_preview' not in st.session_state:
+    st.session_state.show_preview = False
+if 'preview_data' not in st.session_state:
+    st.session_state.preview_data = None
+if 'last_apply_time' not in st.session_state:
+    st.session_state.last_apply_time = 0
+if 'applying_changes' not in st.session_state:
+    st.session_state.applying_changes = False
+if 'generating_preview' not in st.session_state:
+    st.session_state.generating_preview = False
 
+# Check if buttons should be enabled (but always show them)
+print(f"DEBUG: Button visibility check - playlist_id: {bool(st.session_state.current_playlist_id)}, playlist_name: {bool(st.session_state.current_playlist_name)}, token: {bool(st.session_state.token_info)}, messages: {len(st.session_state.messages)}")
+buttons_enabled = (st.session_state.current_playlist_id and 
+                  st.session_state.current_playlist_name and 
+                  st.session_state.token_info and 
+                  len(st.session_state.messages) > 0)
+
+if buttons_enabled:
+    print("DEBUG: *** BUTTONS ENABLED ***")
 else:
-    st.markdown("**Jemya** - Your AI-powered Spotify playlist generator 🎵✨")
+    print("DEBUG: *** BUTTONS DISABLED - conditions not met ***")
+
+# Get AI suggestions from the conversation (use the latest assistant message)
+ai_suggestions = None
+if len(st.session_state.messages) > 0:
+    for message in reversed(st.session_state.messages):  # Get the latest assistant message
+        if message["role"] == "assistant":
+            ai_suggestions = message["content"]
+            break
+
+print(f"DEBUG: Found {len(st.session_state.messages)} messages, ai_suggestions: {ai_suggestions is not None}")
+if ai_suggestions:
+    print(f"DEBUG: AI suggestions preview (first 200 chars): {ai_suggestions[:200]}...")
+
+# Always show buttons, but with different states based on conditions
+if not buttons_enabled:
+    st.info("🎵 Select a playlist and start a conversation to see action buttons!")
+    # Still show buttons but all disabled
+    button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
+    buttons_disabled = True
+elif not ai_suggestions:
+    st.warning("No AI suggestions found to apply to the playlist.")
+    # Still show buttons but all disabled
+    button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
+    buttons_disabled = True
+else:
+    # Show all 5 conversation control buttons horizontally (fully functional)
+    # Horizontal layout for all 5 conversation control buttons
+    button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
+    buttons_disabled = False
+
+with button_col1:
+                    # Open in Spotify button with icon
+                    spotify_url = f"https://open.spotify.com/playlist/{st.session_state.current_playlist_id}"
+                    spotify_icon_b64 = st.session_state.get("spotify_icon_b64", "")
+                    if spotify_icon_b64:
+                        st.markdown(f"""
+                            <div style="text-align: center;">
+                                <a href="{spotify_url}" target="_blank" style="
+                                    display: inline-block;
+                                    padding: 0.5rem;
+                                    background-color: #1DB954;
+                                    color: white;
+                                    text-decoration: none;
+                                    border-radius: 0.5rem;
+                                    width: 100%;
+                                    text-align: center;
+                                    box-sizing: border-box;
+                                    transition: all 0.2s;
+                                " onmouseover="this.style.backgroundColor='#1ed760'" 
+                                   onmouseout="this.style.backgroundColor='#1DB954'"
+                                   title="Open in Spotify">
+                                    <img src="data:image/png;base64,{spotify_icon_b64}" style="height: 20px; vertical-align: middle;">
+                                </a>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # Fallback to text if icon not loaded
+                        st.markdown(f"""
+                            <div style="text-align: center;">
+                                <a href="{spotify_url}" target="_blank" style="
+                                    display: inline-block;
+                                    padding: 0.5rem;
+                                    background-color: #1DB954;
+                                    color: white;
+                                    text-decoration: none;
+                                    border-radius: 0.5rem;
+                                    width: 100%;
+                                    text-align: center;
+                                    box-sizing: border-box;
+                                    font-size: 14px;
+                                    transition: all 0.2s;
+                                " onmouseover="this.style.backgroundColor='#1ed760'" 
+                                   onmouseout="this.style.backgroundColor='#1DB954'"
+                                   title="Open in Spotify">
+                                    🎧 Spotify
+                                </a>
+                            </div>
+                        """, unsafe_allow_html=True)
+            
+with button_col2:
+                    print(f"DEBUG: Button state check - generating_preview: {st.session_state.get('generating_preview', False)}, applying_changes: {st.session_state.get('applying_changes', False)}")
+                    is_disabled = st.session_state.generating_preview or st.session_state.applying_changes
+                    print(f"DEBUG: Button disabled state: {is_disabled}")
+                    print(f"DEBUG: Current playlist name: '{st.session_state.current_playlist_name}'")
+                    
+                    if st.session_state.generating_preview:
+                        print("DEBUG: Showing generating preview message")
+                        st.info("⏳ Generating preview...")
+                    # Always show the Preview button, but disable it based on state
+                    print("DEBUG: Rendering Preview button (always visible)")
+                    if st.session_state.generating_preview:
+                        button_text = "⏳ Generating..."
+                        help_text = "Preview is being generated..."
+                        is_disabled = True
+                    else:
+                        button_text = "👀 Preview"
+                        help_text = f"Preview what will be added to '{st.session_state.current_playlist_name}'"
+                        is_disabled = st.session_state.applying_changes
+                    
+                    preview_clicked = st.button(
+                        button_text,
+                        key="preview_btn_always",
+                        type="secondary",
+                        disabled=is_disabled,
+                        use_container_width=True,
+                        help=help_text
+                    )
+                    print(f"DEBUG: Preview button clicked: {preview_clicked}")
+                    
+                    if preview_clicked:
+                        print("DEBUG: *** PREVIEW BUTTON CLICKED! ***")
+                        print(f"DEBUG: Before rerun - playlist_id: {st.session_state.current_playlist_id}")
+                        print(f"DEBUG: Before rerun - playlist_name: {st.session_state.current_playlist_name}")
+                        print(f"DEBUG: Before rerun - token exists: {st.session_state.token_info is not None}")
+                        st.session_state.generating_preview = True
+                        print("DEBUG: Set generating_preview = True, calling rerun")
+                        st.rerun()
+            
+# Handle preview generation after button click
+if st.session_state.generating_preview:
+                    print("DEBUG: generating_preview is True, showing spinner and calling preview function")
+                    with st.spinner("Analyzing suggested changes..."):
+                        success, message, preview_data = preview_playlist_changes(
+                            st.session_state.current_playlist_id, 
+                            ai_suggestions
+                        )
+                    
+                    print(f"DEBUG: Preview function returned: success={success}, message='{message}', preview_data keys: {list(preview_data.keys()) if isinstance(preview_data, dict) else 'Not a dict'}")
+                    st.session_state.generating_preview = False
+                    
+                    if success:
+                        print("DEBUG: Preview successful, setting show_preview = True")
+                        st.session_state.show_preview = True
+                        st.session_state.preview_data = preview_data
+                        st.rerun()
+                    else:
+                        print(f"DEBUG: Preview failed: {message}")
+                        st.error(f"❌ {message}")
+                        st.rerun()
+            
+with button_col3:
+                    # Quick apply button (for users who don't want preview)
+                    current_time = time.time()
+                    time_since_last_apply = current_time - st.session_state.last_apply_time
+                    can_apply = time_since_last_apply > 10  # 10 second cooldown
+                    
+                    # Quick Apply button - always visible but disabled when not ready
+                    is_disabled = (st.session_state.applying_changes or 
+                                 st.session_state.generating_preview or 
+                                 not can_apply)
+                    
+                    # Determine help text based on state
+                    if st.session_state.applying_changes:
+                        help_text = "⏳ Currently applying changes..."
+                    elif st.session_state.generating_preview:
+                        help_text = "⏳ Generating preview..."
+                    elif not can_apply:
+                        remaining_time = int(10 - time_since_last_apply)
+                        help_text = f"⏰ Please wait {remaining_time} seconds before applying again"
+                    else:
+                        help_text = f"Directly apply AI suggestions to '{st.session_state.current_playlist_name}' without preview"
+                    
+                    if st.button("⚡ Quick Apply (No Preview)", 
+                                type="primary", 
+                                use_container_width=True,
+                                help=help_text,
+                                disabled=is_disabled):
+                            
+                            st.session_state.applying_changes = True
+                            st.session_state.last_apply_time = current_time
+                            
+                            with st.spinner("Applying changes to your Spotify playlist..."):
+                                success, message = apply_playlist_changes(
+                                    st.session_state.current_playlist_id, 
+                                    ai_suggestions
+                                )
+                            
+                            st.session_state.applying_changes = False
+                            
+                            if success:
+                                st.success(f"✅ {message}")
+                                st.info("🎵 Your playlist has been updated! Use the 'Open in Spotify' button above to listen.")
+                                # Force rerun to refresh UI and show "Open in Spotify" button
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+            
+with button_col4:
+                    # Reset Conversation button - always visible but disabled when no messages
+                    is_disabled = (st.session_state.applying_changes or 
+                                 st.session_state.generating_preview or 
+                                 len(st.session_state.messages) <= 1)  # Disable if no conversation to reset
+                    
+                    if st.button("🔄 Reset", 
+                                type="secondary",
+                                use_container_width=True,
+                                help=f"Clear conversation history for '{st.session_state.current_playlist_name}' and start fresh" if not is_disabled else "No conversation to reset",
+                                disabled=is_disabled):
+                        
+                        if len(st.session_state.messages) > 1:  # Double-check before reset
+                            
+                            # Delete the conversation file
+                            success = conversation_manager.delete_conversation(
+                                st.session_state.current_user_id, 
+                                st.session_state.current_playlist_id
+                            )
+                            
+                            if success:
+                                st.success("Conversation reset!")
+                            else:
+                                st.info("No conversation history to reset")
+                            
+                            # Clear current messages in session
+                            st.session_state.messages = []
+                            
+                            # Clear any preview state
+                            st.session_state.show_preview = False
+                            st.session_state.preview_data = None
+                            st.session_state.applying_changes = False
+                            st.session_state.generating_preview = False
+                            
+                            # Clear playlist cache to force reload
+                            if 'cached_playlists' in st.session_state:
+                                del st.session_state.cached_playlists
+                            if 'playlists_cache_time' in st.session_state:
+                                del st.session_state.playlists_cache_time
+                            
+                            # Force rerun to refresh everything
+                            st.rerun()
+            
+with button_col5:
+                    # Cancel/Clear button - always visible but disabled when no messages
+                    is_disabled = (st.session_state.applying_changes or 
+                                 st.session_state.generating_preview or 
+                                 len(st.session_state.messages) <= 1)  # Disable if no messages to clear
+                    
+                    if st.button("❌ Clear", 
+                                type="secondary",
+                                use_container_width=True,
+                                help="Clear current AI suggestions and start over" if not is_disabled else "No suggestions to clear",
+                                disabled=is_disabled):
+                        
+                        if len(st.session_state.messages) > 1:  # Double-check before clearing
+                            
+                            # Clear any AI suggestions by removing the last AI response
+                            if st.session_state.messages and st.session_state.messages[-1].get('role') == 'assistant':
+                                st.session_state.messages.pop()
+                            
+                            # Clear any preview state
+                            st.session_state.show_preview = False
+                            st.session_state.preview_data = None
+                            
+                            # Force rerun to refresh
+                            st.rerun()
+
+            # Show preview if available
+print(f"DEBUG: Checking preview display - show_preview: {st.session_state.get('show_preview', False)}, preview_data exists: {st.session_state.get('preview_data') is not None}")
+if st.session_state.show_preview and st.session_state.preview_data:
+                preview = st.session_state.preview_data
+                summary = preview['summary']
+                print(f"DEBUG: Displaying preview with {len(preview.get('final_tracks', []))} final tracks")
+                
+                st.markdown("### 📋 Preview: Final Playlist")
+                
+                # Show AI-recommended tracks table (both found and not found)
+                if 'final_tracks' in preview and 'playlist_info' in preview:
+                    final_tracks = preview['final_tracks']
+                    not_found_tracks = preview.get('tracks_not_found', [])
+                    playlist_info = preview['playlist_info']
+                    
+                    # Extract playlist owner information
+                    owner_data = playlist_info.get('owner', {})
+                    if isinstance(owner_data, dict):
+                        owner_name = owner_data.get('display_name', 'Unknown')
+                        owner_id = owner_data.get('id', '')
+                    else:
+                        owner_name = 'Unknown'
+                        owner_id = ''
+                    
+                    # Check if it's a public playlist
+                    is_public = playlist_info.get('public', False)
+                    
+                    # Calculate total AI recommendations
+                    total_ai_tracks = len(final_tracks) + len(not_found_tracks)
+                    
+                    # Create formatted table of AI recommendations
+                    tracks_table = f"## 🎵 {playlist_info.get('name', 'Playlist')} (Preview)\n\n"
+                    tracks_table += f"**Created by:** {owner_name}"
+                    # Only show user ID if no display name exists
+                    if not owner_name or owner_name == 'Unknown':
+                        if owner_id:
+                            tracks_table += f" (@{owner_id})"
+                    tracks_table += f" • **{total_ai_tracks} AI recommendations** ({len(final_tracks)} found, {len(not_found_tracks)} not found) • {'Public' if is_public else 'Private'}\n\n"
+                    tracks_table += "| # | Track | Artist | Album | Duration | Start Time | Status |\n"
+                    tracks_table += "|---|-------|--------|-------|----------|------------|--------|\n"
+                    
+                    # First, create a map of found tracks by their original names
+                    found_tracks_map = {}
+                    for track in final_tracks:
+                        # Try to match with original AI suggestions by name similarity
+                        found_tracks_map[track['name'].lower()] = track
+                    
+                    # Get the original AI suggestions to maintain order
+                    original_suggestions = preview.get('original_suggestions', [])
+                    
+                    cumulative_time_ms = 0
+                    track_counter = 1
+                    
+                    # Show tracks in AI-recommended order
+                    if original_suggestions:
+                        for suggestion in original_suggestions:
+                            track_name = suggestion.get('track_name', 'Unknown')
+                            artist_name = suggestion.get('artist', 'Unknown')
+                            
+                            # Try to find matching track in found tracks
+                            found_track = None
+                            for track in final_tracks:
+                                if (track_name.lower() in track['name'].lower() or 
+                                    track['name'].lower() in track_name.lower()):
+                                    found_track = track
+                                    break
+                            
+                            if found_track:
+                                # Format start time
+                                start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
+                                
+                                # Get current track duration and format it
+                                duration_ms = found_track.get('duration_ms', 0)
+                                duration_str = spotify_manager.format_time_human_readable(duration_ms)
+                                
+                                # Truncate long names for table readability
+                                full_track_name = found_track.get('name', 'Unknown')
+                                display_track_name = full_track_name[:40]
+                                if len(full_track_name) > 40:
+                                    display_track_name += "..."
+                                
+                                # Create clickable link if Spotify URL exists
+                                spotify_url = found_track.get('spotify_url', '')
+                                if spotify_url:
+                                    track_name_display = f"[{display_track_name}]({spotify_url})"
+                                else:
+                                    track_name_display = display_track_name
+                                
+                                display_artist_name = found_track.get('artists', 'Unknown')[:30]
+                                if len(found_track.get('artists', '')) > 30:
+                                    display_artist_name += "..."
+                                
+                                album_name = found_track.get('album', 'Unknown')[:30]
+                                if len(found_track.get('album', '')) > 30:
+                                    album_name += "..."
+                                
+                                status = "✅ Found"
+                                
+                                tracks_table += f"| {track_counter} | {track_name_display} | {display_artist_name} | {album_name} | {duration_str} | {start_time_str} | {status} |\n"
+                                
+                                # Add current track duration to cumulative time
+                                cumulative_time_ms += duration_ms
+                            else:
+                                # Track not found - show AI suggestion without link
+                                display_track_name = track_name[:40]
+                                if len(track_name) > 40:
+                                    display_track_name += "..."
+                                
+                                display_artist_name = artist_name[:30]
+                                if len(artist_name) > 30:
+                                    display_artist_name += "..."
+                                
+                                status = "❌ Not Found"
+                                
+                                tracks_table += f"| {track_counter} | {display_track_name} | {display_artist_name} | - | - | - | {status} |\n"
+                            
+                            track_counter += 1
+                    else:
+                        # Fallback: show found tracks first, then not found
+                        for track in final_tracks:
+                            # Format start time
+                            start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
+                            
+                            # Get current track duration and format it
+                            duration_ms = track.get('duration_ms', 0)
+                            duration_str = spotify_manager.format_time_human_readable(duration_ms)
+                            
+                            # Truncate long names for table readability
+                            full_track_name = track.get('name', 'Unknown')
+                            display_track_name = full_track_name[:40]
+                            if len(full_track_name) > 40:
+                                display_track_name += "..."
+                            
+                            # Create clickable link if Spotify URL exists
+                            spotify_url = track.get('spotify_url', '')
+                            if spotify_url:
+                                track_name_display = f"[{display_track_name}]({spotify_url})"
+                            else:
+                                track_name_display = display_track_name
+                            
+                            display_artist_name = track.get('artists', 'Unknown')[:30]
+                            if len(track.get('artists', '')) > 30:
+                                display_artist_name += "..."
+                            
+                            album_name = track.get('album', 'Unknown')[:30]
+                            if len(track.get('album', '')) > 30:
+                                album_name += "..."
+                            
+                            status = "✅ Found"
+                            
+                            tracks_table += f"| {track_counter} | {track_name_display} | {display_artist_name} | {album_name} | {duration_str} | {start_time_str} | {status} |\n"
+                            
+                            # Add current track duration to cumulative time
+                            cumulative_time_ms += duration_ms
+                            track_counter += 1
+                        
+                        # Show not found tracks
+                        for not_found in not_found_tracks:
+                            if ' - ' in not_found:
+                                track_name, artist_name = not_found.split(' - ', 1)
+                            else:
+                                track_name = not_found
+                                artist_name = "Unknown"
+                            
+                            display_track_name = track_name[:40]
+                            if len(track_name) > 40:
+                                display_track_name += "..."
+                            
+                            display_artist_name = artist_name[:30]
+                            if len(artist_name) > 30:
+                                display_artist_name += "..."
+                            
+                            status = "❌ Not Found"
+                            
+                            tracks_table += f"| {track_counter} | {display_track_name} | {display_artist_name} | - | - | - | {status} |\n"
+                            track_counter += 1
+                    
+                    # Add playlist summary
+                    total_duration_ms = sum(track.get('duration_ms', 0) for track in final_tracks)
+                    total_minutes = total_duration_ms // 60000
+                    total_hours = total_minutes // 60
+                    remaining_minutes = total_minutes % 60
+                    
+                    if total_hours > 0:
+                        duration_summary = f"{total_hours}h {remaining_minutes}m"
+                    else:
+                        duration_summary = f"{total_minutes}m"
+                    
+                    tracks_table += f"\n**Total duration:** {duration_summary}"
+                    
+                    # Add summary of changes
+                    change_notes = []
+                    if summary['will_add'] > 0:
+                        change_notes.append(f"**{summary['will_add']} tracks** will be in final playlist")
+                    if summary['will_remove'] > 0:
+                        change_notes.append(f"**{summary['will_remove']} current tracks** will be replaced")
+                    if summary['not_found'] > 0:
+                        change_notes.append(f"**{summary['not_found']} tracks** not found")
+                    
+                    if change_notes:
+                        tracks_table += " • " + " • ".join(change_notes)
+                    
+                    tracks_table += "\n\n*This shows the complete final playlist after AI changes*"
+                    
+                    st.markdown(tracks_table)
+                    
+                    if len(preview['tracks_not_found']) > 10:
+                        st.markdown(f"*... and {len(preview['tracks_not_found']) - 10} more not found*")
+                
+                st.markdown("---")
+                
+                # Apply and Cancel buttons - keep consistent with main button layout
+                col_w, col_x, col_y, col_z, col_v = st.columns(5)
+                
+                with col_w:
+                    # Open in Spotify button with icon (consistent with main layout)
+                    spotify_url = f"https://open.spotify.com/playlist/{st.session_state.current_playlist_id}"
+                    spotify_icon_b64 = st.session_state.get("spotify_icon_b64", "")
+                    if spotify_icon_b64:
+                        st.markdown(f"""
+                            <div style="text-align: center;">
+                                <a href="{spotify_url}" target="_blank" style="
+                                    display: inline-block;
+                                    padding: 0.5rem;
+                                    background-color: #1DB954;
+                                    color: white;
+                                    text-decoration: none;
+                                    border-radius: 0.5rem;
+                                    width: 100%;
+                                    text-align: center;
+                                    box-sizing: border-box;
+                                    transition: all 0.2s;
+                                " onmouseover="this.style.backgroundColor='#1ed760'" 
+                                   onmouseout="this.style.backgroundColor='#1DB954'"
+                                   title="Open in Spotify">
+                                    <img src="data:image/png;base64,{spotify_icon_b64}" style="height: 20px; vertical-align: middle;">
+                                </a>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # Fallback to text if icon not loaded
+                        st.markdown(f"""
+                            <div style="text-align: center;">
+                                <a href="{spotify_url}" target="_blank" style="
+                                    display: inline-block;
+                                    padding: 0.5rem;
+                                    background-color: #1DB954;
+                                    color: white;
+                                    text-decoration: none;
+                                    border-radius: 0.5rem;
+                                    width: 100%;
+                                    text-align: center;
+                                    box-sizing: border-box;
+                                    font-size: 14px;
+                                    transition: all 0.2s;
+                                " onmouseover="this.style.backgroundColor='#1ed760'" 
+                                   onmouseout="this.style.backgroundColor='#1DB954'"
+                                   title="Open in Spotify">
+                                    🎧 Spotify
+                                </a>
+                            </div>
+                        """, unsafe_allow_html=True)
+                
+                with col_z:  # Changed from col_y to col_z
+                    # Check if enough time has passed since last apply (prevent rapid clicking)
+                    current_time = time.time()
+                    time_since_last_apply = current_time - st.session_state.last_apply_time
+                    can_apply = time_since_last_apply > 10  # 10 second cooldown
+                    
+                    # Apply Changes button - always visible but disabled when not ready
+                    is_disabled = (st.session_state.applying_changes or 
+                                 st.session_state.generating_preview or 
+                                 not can_apply)
+                    
+                    # Determine help text based on state
+                    if st.session_state.applying_changes:
+                        help_text = "⏳ Currently applying changes..."
+                    elif st.session_state.generating_preview:
+                        help_text = "⏳ Generating preview..."
+                    elif not can_apply:
+                        remaining_time = int(10 - time_since_last_apply)
+                        help_text = f"⏰ Please wait {remaining_time} seconds before applying again"
+                    else:
+                        help_text = "Apply the changes shown above to your Spotify playlist"
+                    
+                    if st.button("🎵 Apply Changes", 
+                                type="primary", 
+                                use_container_width=True,
+                                help=help_text,
+                                disabled=is_disabled):
+                        
+                        if summary['will_add'] > 0:
+                            st.session_state.applying_changes = True
+                            st.session_state.last_apply_time = current_time
+                            
+                            with st.spinner("Applying changes to your Spotify playlist..."):
+                                success, message = apply_playlist_changes(
+                                    st.session_state.current_playlist_id, 
+                                    ai_suggestions
+                                )
+                            
+                            st.session_state.applying_changes = False
+                            
+                            if success:
+                                st.success(f"✅ {message}")     
+                                st.info("🎵 Your playlist has been updated! Use the 'Open in Spotify' button above to listen.")                           
+                                # Clear preview
+                                st.session_state.show_preview = False
+                                st.session_state.preview_data = None
+                                # Force rerun to refresh UI and show "Open in Spotify" button
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+                        else:
+                            st.warning("No new tracks to add to the playlist.")
+                
+                with col_v:  # Changed from col_y to col_v
+                    if st.button("❌ Cancel", 
+                                type="secondary", 
+                                use_container_width=True,
+                                help="Cancel and don't apply any changes"):
+                        st.session_state.show_preview = False
+                        st.session_state.preview_data = None
+                        st.rerun()
+
+# Footer
+st.markdown("**Jemya** - Your AI-powered Spotify playlist generator 🎵✨")
