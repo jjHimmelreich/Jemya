@@ -303,9 +303,23 @@ if st.session_state.token_info is None:
     sp_oauth = spotify_manager.get_spotify_oauth()
     auth_url = sp_oauth.get_authorize_url()
     
-    # Use a link_button for direct navigation to Spotify auth
-    if st.sidebar.link_button("🔗 Login with Spotify", auth_url, type="primary"):
-        pass  # The link_button handles the redirect automatically
+    # Create a clickable link that opens in the same window
+    st.sidebar.markdown(
+        f"""
+        <a href="{auth_url}" target="_self" style="
+            display: inline-block; 
+            background-color: #1DB954; 
+            color: white; 
+            padding: 0.5rem 1rem; 
+            text-decoration: none; 
+            border-radius: 0.5rem; 
+            font-weight: bold;
+            text-align: center;
+            margin: 0.5rem 0;
+        ">🔗 Login with Spotify</a>
+        """,
+        unsafe_allow_html=True
+    )
 else:
     # User is logged in
     user_info = st.session_state.user_info
