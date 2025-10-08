@@ -6,13 +6,14 @@ import time
 import json
 import os
 import base64
+import conf
 
 # Spotify Configuration
-CLIENT_ID = ***REMOVED***
-CLIENT_SECRET = ***REMOVED***
-REDIRECT_URI = 'http://localhost:5555/callback'
+CLIENT_ID = conf.SPOTIFY_CLIENT_ID
+CLIENT_SECRET = conf.SPOTIFY_CLIENT_SECRET
+REDIRECT_URI = conf.SPOTIFY_REDIRECT_URI
 
-OPENAI_API_KEY = '***REMOVED***'
+OPENAI_API_KEY = conf.OPENAI_API_KEY
 
 # Initialize OpenAI client with API key from secrets
 client = OpenAI(api_key=OPENAI_API_KEY)
