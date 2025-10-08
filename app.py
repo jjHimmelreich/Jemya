@@ -192,6 +192,126 @@ def format_time_human_readable(time_ms):
         else:
             return f"{seconds}s"
 
+def apply_playlist_changes(playlist_id, track_suggestions):
+    """Apply AI-suggested changes to a Spotify playlist"""
+    token_info = refresh_token_if_needed()
+    if not token_info or not isinstance(token_info, dict) or 'access_token' not in token_info:
+        return False, "No valid Spotify authentication"
+    
+    try:
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        
+        # Use OpenAI to extract structured track data from suggestions
+        combined_suggestions = "\n".join(track_suggestions)
+        
+        # Create a structured prompt to extract track information
+        extract_prompt = combined_suggestions + """
+
+Please analyze the conversation above and extract all the suggested tracks for the Spotify playlist. 
+Please provide me with the tracks in a structured format.
+Please format the response as a JSON object so it can be easily parsed with Python.
+It should be an objects list where the objects are in the form of { "track_name": "", "artist": "" }.
+Only include actual song titles and artist names, not descriptions or explanations.
+"""
+
+        try:
+            # Call OpenAI to extract structured track data
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that extracts track information from playlist suggestions."},
+                    {"role": "user", "content": extract_prompt}
+                ]
+            )
+            
+            message_content = response.choices[0].message.content
+            print(f"DEBUG: OpenAI track extraction response: {message_content}")
+            
+            # Parse the JSON response (similar to backend/openai_lib.py approach)
+            import re
+            import json
+            
+            # Extract JSON from code blocks
+            pattern = r"```(.*?)```"
+            matches = re.findall(pattern, message_content, re.DOTALL)
+            playlist_data = None
+            
+            for match in matches:
+                try:
+                    # Clean up the JSON string
+                    json_str = match.replace('json', '').strip()
+                    playlist_data = json.loads(json_str)
+                    break
+                except json.JSONDecodeError:
+                    continue
+            
+            # If no code block found, try to parse the entire response as JSON
+            if not playlist_data:
+                try:
+                    playlist_data = json.loads(message_content)
+                except json.JSONDecodeError:
+                    return False, "Could not parse track suggestions from AI response"
+            
+            # Extract tracks from the parsed data
+            tracks = []
+            if isinstance(playlist_data, list):
+                tracks = playlist_data
+            elif isinstance(playlist_data, dict) and 'playlist' in playlist_data:
+                tracks = playlist_data['playlist']
+            elif isinstance(playlist_data, dict) and 'tracks' in playlist_data:
+                tracks = playlist_data['tracks']
+            
+            if not tracks:
+                return False, "No tracks found in AI response"
+                
+        except Exception as e:
+            print(f"ERROR: OpenAI extraction failed: {e}")
+            return False, f"Failed to extract tracks from AI suggestions: {str(e)}"
+        
+        # Now search for each track on Spotify
+        track_uris = []
+        tracks_not_found = []
+        
+        for track_data in tracks:
+            if not isinstance(track_data, dict):
+                continue
+                
+            track_name = track_data.get('track_name', '').strip()
+            artist = track_data.get('artist', '').strip()
+            
+            if not track_name or not artist:
+                continue
+            
+            # Search for the track on Spotify
+            query = f"track:{track_name} artist:{artist}"
+            try:
+                results = sp.search(q=query, type='track', limit=1)
+                if results['tracks']['items']:
+                    track_uri = results['tracks']['items'][0]['uri']
+                    track_uris.append(track_uri)
+                else:
+                    tracks_not_found.append(f"{track_name} - {artist}")
+            except Exception as e:
+                print(f"Error searching for track {track_name} - {artist}: {e}")
+                tracks_not_found.append(f"{track_name} - {artist}")
+        
+        if track_uris:
+            # Add tracks to the playlist (using same method as backend)
+            user_id = sp.current_user()['id']
+            sp.user_playlist_add_tracks(user_id, playlist_id, track_uris)
+            success_msg = f"Successfully added {len(track_uris)} tracks to playlist"
+            if tracks_not_found:
+                success_msg += f". Could not find {len(tracks_not_found)} tracks: {', '.join(tracks_not_found[:3])}"
+                if len(tracks_not_found) > 3:
+                    success_msg += f" and {len(tracks_not_found) - 3} more"
+            return True, success_msg
+        else:
+            return False, "No tracks found to add to playlist"
+            
+    except Exception as e:
+        print(f"Error applying playlist changes: {e}")
+        return False, f"Error applying changes: {str(e)}"
+
 # Conversation management functions
 def get_conversation_file_path(user_id, playlist_id):
     """Generate file path for conversation storage"""
@@ -972,6 +1092,42 @@ if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."
     # Set flag to auto-scroll to bottom
     st.session_state.auto_scroll = True
 
-# Footer
+# Footer with Apply Changes button
 st.markdown("---")
-st.markdown("**Jemya** - Your AI-powered Spotify playlist generator 🎵✨")
+
+# Show Apply Changes button only if there's an active playlist and user is logged in
+if (st.session_state.current_playlist_id and 
+    st.session_state.current_playlist_name and 
+    st.session_state.token_info and 
+    len(st.session_state.messages) > 0):
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🎵 Apply Changes to Playlist", 
+                    type="primary", 
+                    use_container_width=True,
+                    help=f"Apply AI suggestions to '{st.session_state.current_playlist_name}' on Spotify"):
+            
+            # Get AI suggestions from the conversation
+            ai_suggestions = []
+            for message in st.session_state.messages:
+                if message["role"] == "assistant":
+                    ai_suggestions.append(message["content"])
+            
+            if ai_suggestions:
+                with st.spinner("Applying changes to your Spotify playlist..."):
+                    success, message = apply_playlist_changes(
+                        st.session_state.current_playlist_id, 
+                        ai_suggestions
+                    )
+                
+                if success:
+                    st.success(f"✅ {message}")
+                    st.balloons()
+                else:
+                    st.error(f"❌ {message}")
+            else:
+                st.warning("No AI suggestions found to apply to the playlist.")
+
+else:
+    st.markdown("**Jemya** - Your AI-powered Spotify playlist generator 🎵✨")
