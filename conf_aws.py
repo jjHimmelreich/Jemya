@@ -13,8 +13,8 @@ def get_env_var(key: str, default: Optional[str] = None) -> str:
     return value
 
 # Spotify API Configuration
-SPOTIFY_CLIENT_ID = get_env_var('SPOTIFY_CLIENT_ID', ***REMOVED***)
-SPOTIFY_CLIENT_SECRET = get_env_var('SPOTIFY_CLIENT_SECRET', ***REMOVED***)
+SPOTIFY_CLIENT_ID = get_env_var('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = get_env_var('SPOTIFY_CLIENT_SECRET')
 
 # Dynamic redirect URI based on environment
 if os.getenv('AWS_EXECUTION_ENV'):
@@ -25,7 +25,7 @@ else:
     SPOTIFY_REDIRECT_URI = get_env_var('SPOTIFY_REDIRECT_URI', 'http://localhost:5555/callback')
 
 # OpenAI API Configuration
-OPENAI_API_KEY = get_env_var('OPENAI_API_KEY', ***REMOVED***)
+OPENAI_API_KEY = get_env_var('OPENAI_API_KEY')
 
 # AWS Configuration (optional - for enhanced features)
 AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
