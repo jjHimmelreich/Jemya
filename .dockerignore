@@ -1,0 +1,96 @@
+# Files and directories to exclude from Docker build context
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and debugging
+test_*.py
+*_test.py
+track_debugger.py
+simple_test.py
+test_*.py
+debug_*.py
+
+# Environment and config
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+# Keep both conf.py and conf_aws.py - config.py will choose appropriately
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Local development files
+run_*.sh
+deploy-*.sh
+*.log
+*.txt
+!requirements.txt
+!aws-env-template.txt
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Old/backup files
+old/
+backup/
+*.backup
+*.bak
+
+# Large files
+*.mp4
+*.avi
+*.mov
+*.mp3
+*.wav

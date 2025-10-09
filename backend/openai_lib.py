@@ -2,7 +2,7 @@ import re
 import os
 import json5 as json
 from openai import OpenAI
-import conf
+import config as conf  # Smart configuration loader
 
 os.environ['OPENAI_API_KEY'] = conf.OPENAI_API_KEY
 model="gpt-4o"  # "gpt-4o" gpt-4o-mini

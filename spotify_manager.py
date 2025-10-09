@@ -10,7 +10,7 @@ import time
 import re
 import json
 from typing import Dict, List, Optional, Tuple, Any
-import conf
+import config as conf  # Smart configuration loader
 from openai import OpenAI
 
 

@@ -7,7 +7,7 @@ from openai import OpenAI
 import json
 import re
 from typing import List, Dict, Any
-import conf
+import config as conf  # Smart configuration loader
 
 
 class AIManager:

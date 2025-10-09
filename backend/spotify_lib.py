@@ -3,7 +3,7 @@ from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 import json
 import os
 from datetime import datetime
-import conf
+import config as conf  # Smart configuration loader
 import time
 import utils
 
