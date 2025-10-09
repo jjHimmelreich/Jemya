@@ -8,9 +8,9 @@ import time
 import utils
 
 # Load environment variables
-SPOTIPY_CLIENT_ID = conf.CLIENT_ID
-SPOTIPY_CLIENT_SECRET = conf.CLIENT_SECRET
-SPOTIPY_REDIRECT_URI = conf.REDIRECT_URI
+SPOTIPY_CLIENT_ID = conf.SPOTIFY_CLIENT_ID
+SPOTIPY_CLIENT_SECRET = conf.SPOTIFY_CLIENT_SECRET
+SPOTIPY_REDIRECT_URI = conf.SPOTIFY_REDIRECT_URI
 
 # # Spotify OAuth setup
 # sp_oauth = SpotifyOAuth(
@@ -22,9 +22,9 @@ SPOTIPY_REDIRECT_URI = conf.REDIRECT_URI
 # )
 
 def get_spotify_oauth():
-    return SpotifyOAuth(client_id=conf.CLIENT_ID, 
-                        client_secret=conf.CLIENT_SECRET, 
-                        redirect_uri=conf.REDIRECT_URI, 
+    return SpotifyOAuth(client_id=conf.SPOTIFY_CLIENT_ID, 
+                        client_secret=conf.SPOTIFY_CLIENT_SECRET, 
+                        redirect_uri=conf.SPOTIFY_REDIRECT_URI, 
                         scope="user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state")
 
 def refresh_token(token_info):
@@ -40,8 +40,8 @@ def init(token_info=None):
         sp = spotipy.Spotify(auth=token_info['access_token'])
     else:
         sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-                             client_id=conf.CLIENT_ID, 
-                             client_secret=conf.CLIENT_SECRET))
+                             client_id=conf.SPOTIFY_CLIENT_ID, 
+                             client_secret=conf.SPOTIFY_CLIENT_SECRET))
     return sp
 
 ######################################################################

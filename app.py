@@ -98,7 +98,8 @@ def preview_playlist_changes(playlist_id, track_suggestions):
         playlist_info = sp.playlist(playlist_id, fields="name,owner,public")
         
         # Create preview tracks by searching for desired tracks
-        final_tracks = []
+        # Store results with original track info for proper correlation
+        track_results = []
         not_found_tracks = []
         
         for track in desired_playlist:
@@ -112,16 +113,30 @@ def preview_playlist_changes(playlist_id, track_suggestions):
             found_track = spotify_manager.search_track_with_flexible_matching(sp, track_name, artist_name)
             
             if found_track:
-                final_tracks.append({
-                    'name': found_track['name'],
-                    'artists': ', '.join([artist['name'] for artist in found_track['artists']]),
-                    'album': found_track['album']['name'],
-                    'duration_ms': found_track['duration_ms'],
-                    'spotify_url': found_track['external_urls'].get('spotify', ''),
-                    'is_new': True
+                track_results.append({
+                    'original_track_name': track_name,
+                    'original_artist': artist_name,
+                    'found_track': {
+                        'name': found_track['name'],
+                        'artists': ', '.join([artist['name'] for artist in found_track['artists']]),
+                        'album': found_track['album']['name'],
+                        'duration_ms': found_track['duration_ms'],
+                        'spotify_url': found_track['external_urls'].get('spotify', ''),
+                        'is_new': True
+                    },
+                    'status': 'found'
                 })
             else:
+                track_results.append({
+                    'original_track_name': track_name,
+                    'original_artist': artist_name,
+                    'found_track': None,
+                    'status': 'not_found'
+                })
                 not_found_tracks.append(f"{track_name} - {artist_name}")
+        
+        # Extract just the found tracks for backward compatibility
+        final_tracks = [result['found_track'] for result in track_results if result['status'] == 'found']
         
         # Calculate changes
         tracks_to_add = len(final_tracks)
@@ -132,6 +147,7 @@ def preview_playlist_changes(playlist_id, track_suggestions):
             'playlist_info': playlist_info,
             'tracks_not_found': not_found_tracks,
             'original_suggestions': desired_playlist,  # Include original AI suggestions
+            'track_results': track_results,  # Include detailed results with correlations
             'summary': {
                 'will_add': tracks_to_add,
                 'will_remove': tracks_to_remove,
@@ -876,11 +892,11 @@ with button_col2:
                     
                     if st.session_state.generating_preview:
                         print("DEBUG: Showing generating preview message")
-                        st.info("⏳ Generating preview...")
+                        # Removed generating preview message
                     # Always show the Preview button, but disable it based on state
                     print("DEBUG: Rendering Preview button (always visible)")
                     if st.session_state.generating_preview:
-                        button_text = "⏳ Generating..."
+                        button_text = "📋 Preview"
                         help_text = "Preview is being generated..."
                         is_disabled = True
                     else:
@@ -909,12 +925,12 @@ with button_col2:
             
 # Handle preview generation after button click
 if st.session_state.generating_preview:
-                    print("DEBUG: generating_preview is True, showing spinner and calling preview function")
-                    with st.spinner("Analyzing suggested changes..."):
-                        success, message, preview_data = preview_playlist_changes(
-                            st.session_state.current_playlist_id, 
-                            ai_suggestions
-                        )
+                    print("DEBUG: generating_preview is True, calling preview function without spinner")
+                    # Removed spinner message
+                    success, message, preview_data = preview_playlist_changes(
+                        st.session_state.current_playlist_id, 
+                        ai_suggestions
+                    )
                     
                     print(f"DEBUG: Preview function returned: success={success}, message='{message}', preview_data keys: {list(preview_data.keys()) if isinstance(preview_data, dict) else 'Not a dict'}")
                     st.session_state.generating_preview = False
@@ -944,7 +960,7 @@ with button_col3:
                     if st.session_state.applying_changes:
                         help_text = "⏳ Currently applying changes..."
                     elif st.session_state.generating_preview:
-                        help_text = "⏳ Generating preview..."
+                        help_text = "Applying changes to playlist"
                     elif not can_apply:
                         remaining_time = int(10 - time_since_last_apply)
                         help_text = f"⏰ Please wait {remaining_time} seconds before applying again"
@@ -1001,8 +1017,22 @@ with button_col4:
                             else:
                                 st.info("No conversation history to reset")
                             
-                            # Clear current messages in session
+                            # Clear current messages in session and recreate fresh conversation
                             st.session_state.messages = []
+                            
+                            # Add system message for playlist enrichment specialist
+                            system_message = ai_manager.generate_system_message(has_spotify_connection=True)
+                            st.session_state.messages.append({
+                                "role": "system",
+                                "content": system_message
+                            })
+                            
+                            # Add welcome message
+                            welcome_message = f"🎵 **Analyzing playlist: {st.session_state.current_playlist_name}**\n\nI'm ready to intelligently enrich this playlist! I can analyze track-to-track transitions, insert new songs at optimal positions within your existing structure, and create smooth musical bridges between contrasting tracks. I'll explain exactly where each new track should go and why it improves the flow. What would you like me to enhance?"
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": welcome_message
+                            })
                             
                             # Clear any preview state
                             st.session_state.show_preview = False
@@ -1036,10 +1066,22 @@ with button_col5:
                             # Clear any AI suggestions by removing the last AI response
                             if st.session_state.messages and st.session_state.messages[-1].get('role') == 'assistant':
                                 st.session_state.messages.pop()
+                                
+                                # Save the updated conversation
+                                if st.session_state.current_user_id and st.session_state.current_playlist_id:
+                                    conversation_manager.save_conversation(
+                                        st.session_state.current_user_id,
+                                        st.session_state.current_playlist_id,
+                                        st.session_state.messages
+                                    )
                             
                             # Clear any preview state
                             st.session_state.show_preview = False
                             st.session_state.preview_data = None
+                            st.session_state.applying_changes = False
+                            st.session_state.generating_preview = False
+                            
+                            st.success("AI suggestions cleared!")
                             
                             # Force rerun to refresh
                             st.rerun()
@@ -1091,27 +1133,18 @@ if st.session_state.show_preview and st.session_state.preview_data:
                         # Try to match with original AI suggestions by name similarity
                         found_tracks_map[track['name'].lower()] = track
                     
-                    # Get the original AI suggestions to maintain order
-                    original_suggestions = preview.get('original_suggestions', [])
+                    # Use the properly correlated track results
+                    track_results = preview.get('track_results', [])
                     
                     cumulative_time_ms = 0
                     track_counter = 1
                     
-                    # Show tracks in AI-recommended order
-                    if original_suggestions:
-                        for suggestion in original_suggestions:
-                            track_name = suggestion.get('track_name', 'Unknown')
-                            artist_name = suggestion.get('artist', 'Unknown')
-                            
-                            # Try to find matching track in found tracks
-                            found_track = None
-                            for track in final_tracks:
-                                if (track_name.lower() in track['name'].lower() or 
-                                    track['name'].lower() in track_name.lower()):
-                                    found_track = track
-                                    break
-                            
-                            if found_track:
+                    # Show tracks in AI-recommended order using properly correlated results
+                    if track_results:
+                        for result in track_results:
+                            if result['status'] == 'found':
+                                found_track = result['found_track']
+                                
                                 # Format start time
                                 start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
                                 
@@ -1147,7 +1180,10 @@ if st.session_state.show_preview and st.session_state.preview_data:
                                 # Add current track duration to cumulative time
                                 cumulative_time_ms += duration_ms
                             else:
-                                # Track not found - show AI suggestion without link
+                                # Track not found - show original AI suggestion
+                                track_name = result['original_track_name']
+                                artist_name = result['original_artist']
+                                
                                 display_track_name = track_name[:40]
                                 if len(track_name) > 40:
                                     display_track_name += "..."
@@ -1322,7 +1358,7 @@ if st.session_state.show_preview and st.session_state.preview_data:
                     if st.session_state.applying_changes:
                         help_text = "⏳ Currently applying changes..."
                     elif st.session_state.generating_preview:
-                        help_text = "⏳ Generating preview..."
+                        help_text = "Apply the changes shown above to your Spotify playlist"
                     elif not can_apply:
                         remaining_time = int(10 - time_since_last_apply)
                         help_text = f"⏰ Please wait {remaining_time} seconds before applying again"

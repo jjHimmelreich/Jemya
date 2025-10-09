@@ -7,18 +7,22 @@ import streamlit as st
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import time
+import re
+import json
 from typing import Dict, List, Optional, Tuple, Any
 import conf
+from openai import OpenAI
 
 
 class SpotifyManager:
     """Manages Spotify API interactions and authentication."""
     
     def __init__(self):
-        self.client_id = conf.CLIENT_ID
-        self.client_secret = conf.CLIENT_SECRET
-        self.redirect_uri = conf.REDIRECT_URI
+        self.client_id = conf.SPOTIFY_CLIENT_ID
+        self.client_secret = conf.SPOTIFY_CLIENT_SECRET
+        self.redirect_uri = conf.SPOTIFY_REDIRECT_URI
         self.scope = "user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state"
+        self.openai_client = OpenAI(api_key=conf.OPENAI_API_KEY)
     
     def get_spotify_oauth(self) -> SpotifyOAuth:
         """Get configured SpotifyOAuth instance"""
@@ -193,27 +197,71 @@ class SpotifyManager:
             print(f"Error getting current playlist tracks: {e}")
             return set()
     
-    def search_and_validate_tracks(self, tracks: List[Dict[str, Any]], sp: spotipy.Spotify) -> Tuple[List[Dict[str, Any]], List[str]]:
+    def search_and_validate_tracks(self, tracks: List[Dict[str, Any]], sp: spotipy.Spotify, use_ai_batch: bool = False) -> Tuple[List[Dict[str, Any]], List[str]]:
         """Search for tracks on Spotify and return URIs with validation info"""
         track_results = []
         tracks_not_found = []
         
-        for track_data in tracks:
-            if not isinstance(track_data, dict):
-                continue
+        if use_ai_batch:
+            # Prepare batch requests for AI-enhanced search
+            batch_requests = []
+            track_metadata = []
+            
+            for track_data in tracks:
+                if not isinstance(track_data, dict):
+                    continue
+                    
+                track_name = track_data.get('track_name', '').strip()
+                artist = track_data.get('artist', '').strip()
                 
-            track_name = track_data.get('track_name', '').strip()
-            artist = track_data.get('artist', '').strip()
+                if not track_name or not artist:
+                    continue
+                
+                batch_requests.append({
+                    'track_name': track_name,
+                    'artist_name': artist
+                })
+                track_metadata.append(track_data)
             
-            if not track_name or not artist:
-                continue
-            
-            # Search for the track on Spotify
-            query = f"track:{track_name} artist:{artist}"
-            try:
-                results = sp.search(q=query, type='track', limit=1)
-                if results['tracks']['items']:
-                    found_track = results['tracks']['items'][0]
+            # Use batch AI search
+            if batch_requests:
+                print(f"DEBUG: Using AI batch search for {len(batch_requests)} tracks")
+                batch_results = self.search_tracks_batch_with_ai_fallback(sp, batch_requests)
+                
+                for i, found_track in enumerate(batch_results):
+                    original_data = track_metadata[i]
+                    track_name = batch_requests[i]['track_name']
+                    artist = batch_requests[i]['artist_name']
+                    
+                    if found_track:
+                        track_results.append({
+                            'uri': found_track['uri'],
+                            'found_name': found_track['name'],
+                            'found_artist': ', '.join([artist['name'] for artist in found_track['artists']]),
+                            'found_album': found_track['album']['name'],
+                            'duration_ms': found_track['duration_ms'],
+                            'spotify_url': found_track['external_urls']['spotify'],
+                            'position_instruction': original_data.get('position_instruction', 'at the end'),
+                            'order_index': original_data.get('order_index', 0)
+                        })
+                    else:
+                        tracks_not_found.append(f"{track_name} - {artist}")
+        else:
+            # Original search logic (first result from first successful strategy)
+            for track_data in tracks:
+                if not isinstance(track_data, dict):
+                    continue
+                    
+                track_name = track_data.get('track_name', '').strip()
+                artist = track_data.get('artist', '').strip()
+                
+                if not track_name or not artist:
+                    continue
+                
+                # Use the simplified search (first result from first successful strategy)
+                found_track = self.search_track_with_flexible_matching(sp, track_name, artist)
+                
+                if found_track:
                     track_results.append({
                         'uri': found_track['uri'],
                         'found_name': found_track['name'],
@@ -226,9 +274,6 @@ class SpotifyManager:
                     })
                 else:
                     tracks_not_found.append(f"{track_name} - {artist}")
-            except Exception as e:
-                print(f"Error searching for track '{track_name}' by '{artist}': {e}")
-                tracks_not_found.append(f"{track_name} - {artist}")
         
         return track_results, tracks_not_found
     
@@ -514,49 +559,355 @@ class SpotifyManager:
         # Remove None strategies and duplicates
         return list(dict.fromkeys([s for s in search_strategies if s is not None]))
     
-    def search_track_with_flexible_matching(self, sp: spotipy.Spotify, track_name: str, artist_name: str) -> Optional[Dict[str, Any]]:
-        """Search for a track using strategies and flexible matching"""
+    def search_track_with_flexible_matching(self, sp: spotipy.Spotify, track_name: str, artist_name: str, use_ai_fallback: bool = False) -> Optional[Dict[str, Any]]:
+        """Search for a track using strategies - return first result from first successful strategy"""
         search_strategies = self.generate_search_strategies(track_name, artist_name)
         
         try:
-            for search_query in search_strategies:
-                results = sp.search(q=search_query, type='track', limit=1)
+            print(f"DEBUG: Searching for '{track_name}' by '{artist_name}' using {len(search_strategies)} strategies")
+            for i, search_query in enumerate(search_strategies):
+                print(f"DEBUG: Strategy {i+1}: '{search_query}'")
+                results = sp.search(q=search_query, type='track', limit=10)
                 
                 if results['tracks']['items']:
-                    candidate = results['tracks']['items'][0]
-                    candidate_name = candidate['name'].lower()
-                    candidate_artists = ' '.join([artist['name'].lower() for artist in candidate['artists']])
-                    
-                    # Flexible matching for track names
-                    original_name_lower = track_name.lower()
-                    
-                    name_match = (
-                        original_name_lower in candidate_name or 
-                        candidate_name in original_name_lower
-                    )
-                    
-                    # Flexible matching for artists
-                    original_artist_lower = artist_name.lower()
-                    
-                    artist_match = (
-                        # Direct matches
-                        original_artist_lower in candidate_artists or
-                        candidate_artists in original_artist_lower or
-                        # Partial artist matches
-                        any(artist.strip().lower() in candidate_artists 
-                            for artist in original_artist_lower.split(',') if len(artist.strip()) > 2) or
-                        # For fallback track-only searches, be more flexible with artist matching
-                        (search_query == f'"{track_name}"' or search_query == track_name)
-                    )
-                    
-                    if name_match and artist_match:
-                        return candidate
+                    print(f"DEBUG: Strategy {i+1} returned {len(results['tracks']['items'])} results")
+                    # Simply return the first result from the first successful strategy
+                    first_result = results['tracks']['items'][0]
+                    artists_str = ', '.join([artist['name'] for artist in first_result['artists']])
+                    print(f"DEBUG: Using first result: '{first_result['name']}' by '{artists_str}'")
+                    return first_result
+                else:
+                    print(f"DEBUG: Strategy {i+1} returned no results")
+            
+            print(f"DEBUG: No results found for '{track_name}' by '{artist_name}' after trying {len(search_strategies)} strategies")
+            
+            # If no results found and AI fallback is enabled, try the enhanced search
+            if use_ai_fallback:
+                print(f"DEBUG: Trying AI fallback search...")
+                return self.search_track_with_ai_fallback(sp, track_name, artist_name)
             
             return None
             
-        except Exception as e:
+        except (spotipy.SpotifyException, ValueError, KeyError) as e:
             print(f"ERROR: Failed searching for track '{track_name} - {artist_name}': {e}")
             return None
+
+    def ai_select_best_matches_batch(self, track_requests: List[Dict[str, Any]]) -> Dict[str, Optional[Dict[str, Any]]]:
+        """Use AI to select the best matching tracks for multiple requests in one call"""
+        if not track_requests:
+            return {}
+        
+        try:
+            # Prepare the batch request for AI
+            batch_prompt = "You are an expert music librarian helping match music tracks. For each target track, I'll provide a list of candidate tracks found from Spotify searches.\n\n"
+            
+            request_data = {}
+            for i, request in enumerate(track_requests, 1):
+                target_track = request['target_track']
+                target_artist = request['target_artist']
+                candidates = request['candidates']
+                request_key = f"{target_track}|{target_artist}"
+                request_data[request_key] = candidates
+                
+                # Add to batch prompt
+                batch_prompt += f"TARGET TRACK {i}: '{target_track}' by '{target_artist}'\n"
+                batch_prompt += f"CANDIDATES:\n"
+                
+                for j, track in enumerate(candidates, 1):
+                    artists_str = ', '.join([artist['name'] for artist in track['artists']])
+                    batch_prompt += f"  {j}. '{track['name']}' by '{artists_str}'\n"
+                
+                batch_prompt += "\n"
+            
+            batch_prompt += """For each target track, analyze which candidate is the closest match. Consider:
+1. Track title similarity (accounting for variations in naming, opus numbers, key signatures, etc.)
+2. Artist similarity (main composer/performer match)  
+3. Musical work identity (same piece of music, even with different recording details)
+
+Return your response in this exact JSON format:
+{
+  "1": 2,
+  "2": 1,
+  "3": 0
+}
+
+Where the key is the target track number (1, 2, 3, etc.) and the value is the best matching candidate number (1-N) or 0 if no good match exists.
+
+JSON Response:"""
+
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an expert music librarian helping match music tracks. Return only valid JSON."},
+                    {"role": "user", "content": batch_prompt}
+                ],
+                max_tokens=200,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content.strip()
+            print(f"DEBUG: AI batch response: {result}")
+            
+            # Parse the AI response
+            try:
+                selections = json.loads(result)
+                results = {}
+                
+                for i, request in enumerate(track_requests, 1):
+                    target_track = request['target_track']
+                    target_artist = request['target_artist']
+                    candidates = request['candidates']
+                    request_key = f"{target_track}|{target_artist}"
+                    
+                    selected_index = int(selections.get(str(i), 0))
+                    
+                    if 1 <= selected_index <= len(candidates):
+                        selected_track = candidates[selected_index - 1]
+                        artists_str = ', '.join([artist['name'] for artist in selected_track['artists']])
+                        print(f"DEBUG: AI selected #{selected_index} for '{target_track}': '{selected_track['name']}' by '{artists_str}'")
+                        results[request_key] = selected_track
+                    elif selected_index == 0:
+                        print(f"DEBUG: AI found no good match for '{target_track}'")
+                        results[request_key] = None
+                    else:
+                        print(f"DEBUG: AI returned invalid index {selected_index} for '{target_track}', using first candidate")
+                        results[request_key] = candidates[0] if candidates else None
+                
+                return results
+                
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                print(f"DEBUG: Failed to parse AI batch response: {e}")
+                # Fallback to first candidate for each request
+                results = {}
+                for request in track_requests:
+                    target_track = request['target_track']
+                    target_artist = request['target_artist']
+                    candidates = request['candidates']
+                    request_key = f"{target_track}|{target_artist}"
+                    results[request_key] = candidates[0] if candidates else None
+                return results
+            
+        except Exception as e:
+            print(f"ERROR: AI batch selection failed: {e}")
+            # Fallback to first candidate for each request
+            results = {}
+            for request in track_requests:
+                target_track = request['target_track']
+                target_artist = request['target_artist']
+                candidates = request['candidates']
+                request_key = f"{target_track}|{target_artist}"
+                results[request_key] = candidates[0] if candidates else None
+            return results
+
+    def search_tracks_batch_with_ai_fallback(self, sp: spotipy.Spotify, track_requests: List[Dict[str, str]]) -> List[Optional[Dict[str, Any]]]:
+        """Search for multiple tracks and use AI to select best matches in batch"""
+        if not track_requests:
+            return []
+        
+        print(f"DEBUG: Batch searching {len(track_requests)} tracks with AI fallback")
+        
+        # First, collect all candidates for all tracks
+        all_track_data = []
+        for request in track_requests:
+            track_name = request['track_name']
+            artist_name = request['artist_name']
+            
+            search_strategies = self.generate_search_strategies(track_name, artist_name)
+            all_candidates = []
+            
+            try:
+                print(f"DEBUG: Searching '{track_name}' by '{artist_name}' using {len(search_strategies)} strategies")
+                
+                # Collect all candidates from all strategies
+                for i, search_query in enumerate(search_strategies):
+                    results = sp.search(q=search_query, type='track', limit=10)
+                    
+                    if results['tracks']['items']:
+                        print(f"DEBUG: Strategy {i+1} returned {len(results['tracks']['items'])} results")
+                        
+                        # Add unique tracks to candidates (avoid duplicates)
+                        for track in results['tracks']['items']:
+                            track_id = track['id']
+                            if not any(candidate['id'] == track_id for candidate in all_candidates):
+                                all_candidates.append(track)
+                
+                print(f"DEBUG: Found {len(all_candidates)} unique candidates for '{track_name}'")
+                
+                all_track_data.append({
+                    'target_track': track_name,
+                    'target_artist': artist_name,
+                    'candidates': all_candidates
+                })
+                
+            except (spotipy.SpotifyException, ValueError, KeyError) as e:
+                print(f"ERROR: Search failed for '{track_name}': {e}")
+                all_track_data.append({
+                    'target_track': track_name,
+                    'target_artist': artist_name,
+                    'candidates': []
+                })
+        
+        # Filter out tracks that have no candidates
+        tracks_needing_ai = [data for data in all_track_data if data['candidates']]
+        
+        # Use AI to select best matches for all tracks in one call
+        ai_results = {}
+        if tracks_needing_ai:
+            print(f"DEBUG: Using AI to select best matches for {len(tracks_needing_ai)} tracks")
+            ai_results = self.ai_select_best_matches_batch(tracks_needing_ai)
+        
+        # Build final results list
+        final_results = []
+        for data in all_track_data:
+            target_track = data['target_track']
+            target_artist = data['target_artist']
+            candidates = data['candidates']
+            request_key = f"{target_track}|{target_artist}"
+            
+            if not candidates:
+                final_results.append(None)
+            elif len(candidates) == 1:
+                # Single candidate, use it
+                selected = candidates[0]
+                artists_str = ', '.join([artist['name'] for artist in selected['artists']])
+                print(f"DEBUG: Single candidate for '{target_track}': '{selected['name']}' by '{artists_str}'")
+                final_results.append(selected)
+            else:
+                # Multiple candidates, use AI result
+                ai_selected = ai_results.get(request_key)
+                final_results.append(ai_selected)
+        
+        return final_results
+
+    def search_track_with_ai_fallback(self, sp: spotipy.Spotify, track_name: str, artist_name: str) -> Optional[Dict[str, Any]]:
+        """Enhanced search that collects all candidates and uses AI to select the best match"""
+        search_strategies = self.generate_search_strategies(track_name, artist_name)
+        all_candidates = []
+        
+        try:
+            print(f"DEBUG: Enhanced search for '{track_name}' by '{artist_name}' using {len(search_strategies)} strategies")
+            
+            # Collect all candidates from all strategies
+            for i, search_query in enumerate(search_strategies):
+                print(f"DEBUG: Strategy {i+1}: '{search_query}'")
+                results = sp.search(q=search_query, type='track', limit=10)
+                
+                if results['tracks']['items']:
+                    print(f"DEBUG: Strategy {i+1} returned {len(results['tracks']['items'])} results")
+                    
+                    # Add unique tracks to candidates (avoid duplicates)
+                    for track in results['tracks']['items']:
+                        # Check if we already have this track
+                        track_id = track['id']
+                        if not any(candidate['id'] == track_id for candidate in all_candidates):
+                            all_candidates.append(track)
+                else:
+                    print(f"DEBUG: Strategy {i+1} returned no results")
+            
+            if not all_candidates:
+                print(f"DEBUG: No candidates found for '{track_name}' by '{artist_name}'")
+                return None
+            
+            print(f"DEBUG: Found {len(all_candidates)} unique candidates across all strategies")
+            
+            # If we have candidates, use AI to select the best match
+            if len(all_candidates) == 1:
+                # Only one candidate, return it
+                selected = all_candidates[0]
+                artists_str = ', '.join([artist['name'] for artist in selected['artists']])
+                print(f"DEBUG: Single candidate: '{selected['name']}' by '{artists_str}'")
+                return selected
+            else:
+                # Multiple candidates, use batch AI with single track
+                batch_request = [{
+                    'target_track': track_name,
+                    'target_artist': artist_name,
+                    'candidates': all_candidates
+                }]
+                ai_results = self.ai_select_best_matches_batch(batch_request)
+                request_key = f"{track_name}|{artist_name}"
+                return ai_results.get(request_key)
+            
+        except (spotipy.SpotifyException, ValueError, KeyError) as e:
+            print(f"ERROR: Enhanced search failed for '{track_name} - {artist_name}': {e}")
+            return None
+
+    def _flexible_name_match(self, original_name, candidate_name):
+        """Generalized flexible matching for track names"""
+        def normalize_track_name(name):
+            """Normalize track names for flexible comparison"""
+            if not name:
+                return ""
+            normalized = name.lower()
+            
+            # Remove common music metadata patterns
+            # Opus numbers, BWV, K. numbers, RV numbers
+            normalized = re.sub(r'\b(op\.?\s*\d+[a-z]?(\s*no\.?\s*\d+)?)\b', 'opus', normalized)
+            normalized = re.sub(r'\b(bwv|rv|k\.?\s*\d+)\b', 'catalog', normalized)
+            
+            # Key signatures and musical terms
+            normalized = re.sub(r'\b(in\s+[a-g][#b]?\s*(major|minor))\b', 'key', normalized)
+            normalized = re.sub(r'\b(adagio|allegro|andante|presto|largo|moderato|vivace|alla\s+marcia)\b', '', normalized)
+            
+            # Movement numbers (Roman numerals)
+            normalized = re.sub(r'\b(i{1,3}v?|v|vi{1,3}|ix|x)\.?\s*', '', normalized)
+            
+            # Remove collection numbers at start (like "10 Preludes" -> "Preludes")
+            # But preserve important numbers like "No. 5", "Op. 23"
+            normalized = re.sub(r'^\d+\s+(?!no\.?\s*\d)', '', normalized)
+            
+            # Remove version indicators
+            normalized = re.sub(r'\b(version|ver|live|remaster|remastered|remix|edit)\b', '', normalized)
+            
+            # Remove year patterns
+            normalized = re.sub(r'\b(19|20)\d{2}\b', '', normalized)
+            
+            # Remove common suffixes/prefixes
+            normalized = re.sub(r'\b(feat\.?|ft\.?|featuring|with|the|a|an)\b', '', normalized)
+            
+            # Clean up quotes, punctuation, and extra spaces
+            normalized = re.sub(r'[^\w\s]', '', normalized)
+            normalized = re.sub(r'\s+', ' ', normalized).strip()
+            
+            return normalized
+        
+        # Early check for numbered pieces before normalization
+        # Extract "No." numbers specifically (these identify specific pieces)
+        original_piece_numbers = set(re.findall(r'\bno\.?\s*(\d+)\b', original_name.lower()))
+        candidate_piece_numbers = set(re.findall(r'\bno\.?\s*(\d+)\b', candidate_name.lower()))
+        
+        # If both have piece numbers and they're different, likely different pieces
+        if original_piece_numbers and candidate_piece_numbers:
+            if not original_piece_numbers.intersection(candidate_piece_numbers):
+                # Check if the base title (without numbers) is similar
+                original_base = re.sub(r'\b(?:no\.?\s*)?\d+\b|\b(?:op\.?\s*)?\d+\b', '', original_name.lower()).strip()
+                candidate_base = re.sub(r'\b(?:no\.?\s*)?\d+\b|\b(?:op\.?\s*)?\d+\b', '', candidate_name.lower()).strip()
+                
+                # If base titles are very similar, these are different numbered pieces
+                if original_base and candidate_base:
+                    original_base_words = set(re.findall(r'\b\w+\b', original_base))
+                    candidate_base_words = set(re.findall(r'\b\w+\b', candidate_base))
+                    if len(original_base_words.intersection(candidate_base_words)) >= 1:
+                        return False  # Same type of piece but different numbers
+        
+        original_norm = normalize_track_name(original_name)
+        candidate_norm = normalize_track_name(candidate_name)
+        
+        # Try normalized substring matching
+        if original_norm in candidate_norm or candidate_norm in original_norm:
+            return True
+            
+        # Word-based matching for better flexibility
+        original_words = set(word for word in original_norm.split() if len(word) > 2)
+        candidate_words = set(word for word in candidate_norm.split() if len(word) > 2)
+        
+        # If at least 60% of significant original words are found in candidate
+        if len(original_words) > 0:
+            common_words = original_words.intersection(candidate_words)
+            match_ratio = len(common_words) / len(original_words)
+            return match_ratio >= 0.6
+            
+        return False
 
     @staticmethod
     def format_time_human_readable(time_ms: int) -> str:
