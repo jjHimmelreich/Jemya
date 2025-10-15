@@ -9,6 +9,8 @@ on:
 env:
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '18'
+  ECR_REPOSITORY: jemya
+  APP_NAME: jemya
 
 jobs:
   # 🔍 Security and Code Quality Scans
@@ -107,13 +109,13 @@ jobs:
     # 🏗️ Build Docker image for scanning
     - name: 🏗️ Build Docker image
       run: |
-        docker build -t jemya:latest .
+        docker build -t ${{ env.APP_NAME }}:latest .
 
     # 🔍 Container Vulnerability Scanning with Trivy
     - name: 🔍 Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: 'jemya:latest'
+        image-ref: '${{ env.APP_NAME }}:latest'
         format: 'sarif'
         output: 'trivy-results.sarif'
 
@@ -172,7 +174,7 @@ jobs:
     # 🐳 Build and test Docker image
     - name: 🐳 Build Docker image
       run: |
-        docker build -t jemya:${{ github.sha }} .
+        docker build -t ${{ env.APP_NAME }}:${{ github.sha }} .
 
     - name: 🧪 Test Docker image
       run: |
@@ -182,7 +184,7 @@ jobs:
           -e SPOTIFY_CLIENT_SECRET=test \
           -e SPOTIFY_REDIRECT_URI=https://test.com/callback \
           -e OPENAI_API_KEY=test \
-          jemya:${{ github.sha }} &
+          ${{ env.APP_NAME }}:${{ github.sha }} &
         sleep 10
         docker logs test-container
         docker stop test-container || true
