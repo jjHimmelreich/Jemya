@@ -1,0 +1,10 @@
+# .trivyignore - Trivy security scanner ignore file
+# Ignore specific CVEs that are false positives or accepted risks
+
+# Example: Ignore a specific CVE in a development dependency
+# CVE-2023-12345
+
+# Ignore low severity issues in development dependencies
+# You can uncomment these if you want to reduce noise:
+# CVE-*-*-LOW
+# CVE-*-*-MEDIUM
