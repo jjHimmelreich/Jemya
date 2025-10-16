@@ -68,7 +68,7 @@ def update_github_secrets(repo, token, secrets):
     
     # Get repository public key
     key_url = f'https://api.github.com/repos/{repo}/actions/secrets/public-key'
-    key_response = requests.get(key_url, headers=headers)
+    key_response = requests.get(key_url, headers=headers, timeout=30)
     public_key = key_response.json()
     
     for secret_name, secret_value in secrets.items():
@@ -84,4 +84,4 @@ def update_github_secrets(repo, token, secrets):
             'encrypted_value': encrypted_value,
             'key_id': public_key['key_id']
         }
-        requests.put(secret_url, headers=headers, json=secret_data)
+        requests.put(secret_url, headers=headers, json=secret_data, timeout=30)

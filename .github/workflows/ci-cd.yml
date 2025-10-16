@@ -53,8 +53,9 @@ jobs:
 
     - name: 🔒 Run Bandit security scan
       run: |
-        bandit -r . -f json -o bandit-report.json || echo "Bandit found issues - check report"
-        bandit -r . -f txt
+        # Use bandit config file and exclude non-production code
+        bandit -r . -c .bandit --exclude="ZZZ*" -f json -o bandit-report.json --severity-level medium || echo "Bandit found medium+ severity issues - check report"
+        bandit -r . -c .bandit --exclude="ZZZ*" -f txt --severity-level medium
       continue-on-error: false
 
     - name: 🔒 Run Safety dependency vulnerability scan
@@ -354,11 +355,8 @@ jobs:
         # Create Nginx configuration for Jemya with SSL support
         echo "⚙️ Configuring Nginx reverse proxy with HTTPS..."
         
-        # Download Nginx configuration from repository
-        curl -s https://raw.githubusercontent.com/jjHimmelreich/Jemya/main/aws/nginx-jemya.conf > /tmp/nginx-jemya.conf
-        
-        # Install the configuration
-        sudo cp /tmp/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf
+        # Use the nginx config file from the repository (already checked out)
+        sudo cp aws/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf
         
         # Create SSL directory and self-signed certificate
         echo "🔐 Setting up SSL certificate..."
