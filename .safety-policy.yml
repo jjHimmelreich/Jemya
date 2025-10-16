@@ -1,0 +1,4 @@
+# Safety ignore file for known/acceptable vulnerabilities
+# Format: vulnerability_id:reason
+
+# Known low-priority issues that don't affect production security
