@@ -55,11 +55,11 @@ jobs:
       run: |
         # Generate reports first (non-blocking)
         # Bandit will automatically use .bandit config file
-        bandit -r . -f json -o bandit-report.json --severity-level low || true
+        bandit -c .bandit -r . -f json -o bandit-report.json --severity-level low || true
         
         # Fail only on HIGH severity issues
         echo "🔍 Checking for HIGH+ severity security issues..."
-        bandit -r . -f txt --severity-level high
+        bandit -c .bandit -r . -f txt --severity-level high
       continue-on-error: false
 
     - name: 🔒 Run dependency vulnerability scan (pip-audit primary)
