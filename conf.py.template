@@ -1,0 +1,13 @@
+# Configuration template for Jemya
+# Copy this file to conf.py and fill in your actual values
+
+# Spotify Configuration
+SPOTIFY_CLIENT_ID = "your_spotify_client_id_here"
+SPOTIFY_CLIENT_SECRET = "your_spotify_client_secret_here"
+SPOTIFY_REDIRECT_URI = "http://localhost:8501/callback"
+
+# OpenAI Configuration  
+OPENAI_API_KEY = "your_openai_api_key_here"
+
+# Environment
+ENVIRONMENT = "development"  # development or production
