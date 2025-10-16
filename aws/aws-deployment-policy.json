@@ -43,6 +43,17 @@
       "Resource": "*"
     },
     {
+      "Sid": "SSMPermissions",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation",
+        "ssm:DescribeInstanceInformation",
+        "ssm:ListCommandInvocations"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "EC2TaggedResourcesOnly",
       "Effect": "Allow",
       "Action": [

@@ -368,135 +368,22 @@ jobs:
         echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
         echo "private_ip=$PRIVATE_IP" >> $GITHUB_OUTPUT
         
-        # Check if we have SSH key for deployment
-        if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-          echo "❌ EC2_SSH_KEY secret not found!"
-          echo "💡 Please add EC2_SSH_KEY to GitHub secrets to enable deployment"
-          echo ""
-          echo "To add the SSH key:"
-          echo "1. Go to your repository Settings > Secrets and variables > Actions"
-          echo "2. Add a new secret named 'EC2_SSH_KEY'"
-          echo "3. Paste the content of your private SSH key (jemya-key-20251016.pem)"
-          exit 1
-        else
-          echo "✅ SSH key available for deployment"
-          echo "ssh_available=true" >> $GITHUB_OUTPUT
-        fi
+        # Using AWS Session Manager for deployment (no SSH key needed)
+        echo "✅ Will deploy using AWS Session Manager (no SSH key required)"
 
-    # 🚀 Deploy to Auto-Discovered EC2 Instance
+    # 🚀 Deploy to Auto-Discovered EC2 Instance via Session Manager
     - name: 🚀 Deploy to EC2 Instance
       run: |
-        echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.public_ip }}"
+        echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.instance_id }} (${{ steps.discover-ec2.outputs.public_ip }})"
         
-        # Create deployment script
-        cat > deploy_script.sh << 'EOF'
-        #!/bin/bash
-        set -e
+        # Deploy via Session Manager (no SSH needed)
+        ./aws/deploy-via-session-manager.sh \
+          "${{ steps.discover-ec2.outputs.instance_id }}" \
+          "${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
         
-        echo "🚀 Deploying Jemya to EC2..."
-        
-        # Login to ECR
-        aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-        
-        # Stop existing container
-        docker stop jemya-app || true
-        docker rm jemya-app || true
-        
-        # Pull and run new image
-        docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-        
-        # Run container on port 8501 (Nginx will proxy from port 80)
-        docker run -d \
-          --name jemya-app \
-          -p 8501:8501 \
-          --restart unless-stopped \
-          -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
-          -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
-          -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
-          -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-          -e ENVIRONMENT="production" \
-          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-        
-        # Ensure Nginx is installed and configured
-        echo "🔧 Checking Nginx configuration..."
-        
-        # Install Nginx if not present
-        if ! command -v nginx &> /dev/null; then
-            echo "📦 Installing Nginx..."
-            sudo yum update -y
-            sudo yum install -y nginx
-            sudo systemctl enable nginx
-        fi
-        
-        # Create Nginx configuration for Jemya with SSL support
-        echo "⚙️ Configuring Nginx reverse proxy with HTTPS..."
-        
-        # Use the nginx config file from the repository (already checked out)
-        sudo cp aws/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf
-        
-        # Create SSL directory and self-signed certificate
-        echo "🔐 Setting up SSL certificate..."
-        sudo mkdir -p /etc/nginx/ssl
-        
-        # Generate self-signed certificate (temporary)
-        sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout /etc/nginx/ssl/jemya.key \
-            -out /etc/nginx/ssl/jemya.crt \
-            -subj "/C=US/ST=Cloud/L=AWS/O=Jemya/OU=IT Department/CN=jemya-app"
-        
-        # Test and restart Nginx
-        sudo nginx -t && sudo systemctl restart nginx
-        sudo systemctl enable nginx
-        
-        echo "✅ Deployment completed!"
-        echo "🌐 App running on port 8501 (internal)"  
-        echo "🌍 Nginx proxying from port 80 (public)"
-        docker ps | grep jemya-app || echo "Container status check failed"
-        sudo systemctl status nginx --no-pager -l || echo "Nginx status check failed"
-        EOF
-        
-        # Setup SSH key
-        echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
-        chmod 600 ec2_key.pem
-        
-        # Execute deployment on EC2
-        scp -i ec2_key.pem -o StrictHostKeyChecking=no deploy_script.sh ec2-user@${{ steps.discover-ec2.outputs.public_ip }}:/tmp/
-        ssh -i ec2_key.pem -o StrictHostKeyChecking=no ec2-user@${{ steps.discover-ec2.outputs.public_ip }} "chmod +x /tmp/deploy_script.sh && /tmp/deploy_script.sh"
-        
-        # Cleanup
-        rm -f ec2_key.pem deploy_script.sh
         echo "🎉 Deployment to EC2 completed successfully!"
 
-    # 🔄 Alternative deployment info (if no SSH key)
-    - name: 📋 Manual Deployment Instructions  
-      if: steps.discover-ec2.outputs.ssh_available == 'false'
-      run: |
-        echo "📋 EC2 Instance discovered but no SSH key configured"
-        echo "🖥️ Instance: ${{ steps.discover-ec2.outputs.instance_id }}"
-        echo "🌐 IP: ${{ steps.discover-ec2.outputs.public_ip }}"
-        echo ""
-        echo "📦 Docker image built and pushed to ECR:"
-        echo "🔗 ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-        echo ""
-        echo "🔧 To deploy manually, SSH to your instance and run:"
-        echo ""
-        echo "# 1. Login to ECR and pull image:"
-        echo "aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}"
-        echo "docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-        echo ""
-        echo "# 2. Deploy container:"
-        echo "docker stop jemya-app && docker rm jemya-app || true"
-        echo "docker run -d --name jemya-app -p 8501:8501 --restart unless-stopped \\"
-        echo "  -e SPOTIFY_CLIENT_ID=your_client_id \\"
-        echo "  -e SPOTIFY_CLIENT_SECRET=your_client_secret \\"
-        echo "  -e SPOTIFY_REDIRECT_URI=your_redirect_uri \\"
-        echo "  -e OPENAI_API_KEY=your_openai_key \\"
-        echo "  -e ENVIRONMENT=production \\"
-        echo "  ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-        echo ""
-        echo "# 3. Set up Nginx with HTTPS (if not already configured):"
-        echo "sudo yum install -y nginx openssl"
-        echo "# Configure Nginx to proxy HTTPS (443) -> 8501"
+
         echo "# Generate SSL certificate and configure HTTPS redirect"
         echo "# Your app will be available on port 443 (HTTPS secure)"
 
