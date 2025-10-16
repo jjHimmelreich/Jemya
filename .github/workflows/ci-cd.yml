@@ -58,8 +58,8 @@ jobs:
 
     - name: 🔒 Run Safety dependency vulnerability scan
       run: |
-        safety scan --output json --save-as safety-report.json || true
-        safety scan || true
+        safety scan --output json > safety-report.json 2>/dev/null || echo "Safety scan completed with warnings"
+        safety scan --output screen || echo "Safety scan completed"
       continue-on-error: true
 
     - name: 🔒 Run pip-audit for dependency vulnerabilities
