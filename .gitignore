@@ -15,3 +15,19 @@ conf.py
 .env
 .env.local
 .env.production
+
+# AWS secrets and credentials - NEVER COMMIT!
+*.pem
+*.key
+*key*.pem
+github-secrets.txt
+ec2-instance-info.txt
+ec2-elastic-ip-info.txt
+aws-credentials.txt
+*-credentials.*
+*-secrets.*
+
+# Sensitive configuration files
+**/credentials/*
+**/keys/*
+**/secrets/*

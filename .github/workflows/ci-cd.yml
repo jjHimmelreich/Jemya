@@ -245,36 +245,145 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-    # 🚀 Deploy to AWS App Runner
-    - name: 🚀 Deploy to AWS App Runner
+    # � Auto-discover EC2 instance for deployment
+    - name: � Discover EC2 Instance
+      id: discover-ec2
       run: |
-        # Create or update App Runner service
-        aws apprunner update-service \
-          --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} \
-          --source-configuration '{
-            "ImageRepository": {
-              "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
-              "ImageConfiguration": {
-                "Port": "8501",
-                "RuntimeEnvironmentVariables": {
-                  "SPOTIFY_CLIENT_ID": "${{ secrets.SPOTIFY_CLIENT_ID }}",
-                  "SPOTIFY_CLIENT_SECRET": "${{ secrets.SPOTIFY_CLIENT_SECRET }}",
-                  "SPOTIFY_REDIRECT_URI": "${{ secrets.SPOTIFY_REDIRECT_URI }}",
-                  "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}",
-                  "ENVIRONMENT": "production"
-                }
-              },
-              "ImageRepositoryType": "ECR"
-            },
-            "AutoDeploymentsEnabled": false
-          }' || echo "Service update failed, attempting to create service..."
+        echo "🔍 Auto-discovering Jemya EC2 instance..."
+        
+        # Find running Jemya instance by tag
+        INSTANCE_INFO=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=jemya-instance" \
+                    "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].[InstanceId,PublicIpAddress,PrivateIpAddress]' \
+          --output text \
+          --region ${{ env.AWS_DEFAULT_REGION }})
+        
+        if [ "$INSTANCE_INFO" = "None	None	None" ] || [ -z "$INSTANCE_INFO" ]; then
+          echo "❌ No running Jemya EC2 instance found!"
+          echo "💡 Make sure your EC2 instance is running and tagged with Name=jemya-instance"
+          exit 1
+        fi
+        
+        # Parse instance info
+        INSTANCE_ID=$(echo $INSTANCE_INFO | cut -f1)
+        PUBLIC_IP=$(echo $INSTANCE_INFO | cut -f2)
+        PRIVATE_IP=$(echo $INSTANCE_INFO | cut -f3)
+        
+        echo "✅ Found Jemya EC2 instance:"
+        echo "   Instance ID: $INSTANCE_ID"
+        echo "   Public IP: $PUBLIC_IP"
+        echo "   Private IP: $PRIVATE_IP"
+        
+        # Set outputs for next steps
+        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+        echo "private_ip=$PRIVATE_IP" >> $GITHUB_OUTPUT
+        
+        # Check if we have SSH key for deployment
+        if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+          echo "⚠️ EC2_SSH_KEY secret not found - will skip SSH deployment"
+          echo "💡 Add EC2_SSH_KEY to GitHub secrets for automatic deployment"
+          echo "ssh_available=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ SSH key available for deployment"
+          echo "ssh_available=true" >> $GITHUB_OUTPUT
+        fi
 
-    # 📊 Deployment status
-    - name: 📊 Check deployment status
+    # 🚀 Deploy to Auto-Discovered EC2 Instance
+    - name: 🚀 Deploy to EC2 Instance
+      if: steps.discover-ec2.outputs.ssh_available == 'true'
       run: |
-        echo "🚀 Deployment completed!"
-        echo "🔗 App Runner service: ${{ secrets.APP_RUNNER_SERVICE_ARN }}"
-        echo "📦 Docker image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+        echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.public_ip }}"
+        
+        # Create deployment script
+        cat > deploy_script.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Deploying Jemya to EC2..."
+        
+        # Login to ECR
+        aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+        
+        # Stop existing container
+        docker stop jemya-app || true
+        docker rm jemya-app || true
+        
+        # Pull and run new image
+        docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        
+        docker run -d \
+          --name jemya-app \
+          -p 8501:8501 \
+          --restart unless-stopped \
+          -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
+          -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
+          -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
+          -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+          -e ENVIRONMENT="production" \
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        
+        echo "✅ Deployment completed!"
+        docker ps | grep jemya-app || echo "Container status check failed"
+        EOF
+        
+        # Setup SSH key
+        echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
+        chmod 600 ec2_key.pem
+        
+        # Execute deployment on EC2
+        scp -i ec2_key.pem -o StrictHostKeyChecking=no deploy_script.sh ec2-user@${{ steps.discover-ec2.outputs.public_ip }}:/tmp/
+        ssh -i ec2_key.pem -o StrictHostKeyChecking=no ec2-user@${{ steps.discover-ec2.outputs.public_ip }} "chmod +x /tmp/deploy_script.sh && /tmp/deploy_script.sh"
+        
+        # Cleanup
+        rm -f ec2_key.pem deploy_script.sh
+        echo "🎉 Deployment to EC2 completed successfully!"
+
+    # 🔄 Alternative deployment info (if no SSH key)
+    - name: 📋 Manual Deployment Instructions  
+      if: steps.discover-ec2.outputs.ssh_available == 'false'
+      run: |
+        echo "📋 EC2 Instance discovered but no SSH key configured"
+        echo "🖥️ Instance: ${{ steps.discover-ec2.outputs.instance_id }}"
+        echo "🌐 IP: ${{ steps.discover-ec2.outputs.public_ip }}"
+        echo ""
+        echo "📦 Docker image built and pushed to ECR:"
+        echo "🔗 ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+        echo ""
+        echo "🔧 To deploy manually, SSH to your instance and run:"
+        echo "aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}"
+        echo "docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+        echo "docker stop jemya-app && docker rm jemya-app"
+        echo "docker run -d --name jemya-app -p 8501:8501 --restart unless-stopped [ENV_VARS] ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+
+    # 📊 Deployment Summary
+    - name: 📊 Deployment Summary
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ Docker Image Built & Pushed" >> $GITHUB_STEP_SUMMARY
+        echo "� **Image URI**: \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "🏷️ **Tag**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "🌍 **Region**: \`${{ env.AWS_DEFAULT_REGION }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.discover-ec2.outputs.ssh_available }}" = "true" ]; then
+          echo "### �️ EC2 Deployment (Auto-Discovered)" >> $GITHUB_STEP_SUMMARY
+          echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Status**: Automatically deployed via SSH" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### 🖥️ EC2 Instance Found (Manual Deployment Required)" >> $GITHUB_STEP_SUMMARY
+          echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Status**: Add EC2_SSH_KEY secret for auto-deployment" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🎉 **CI/CD Pipeline completed successfully!**" >> $GITHUB_STEP_SUMMARY
 
   # 📋 Security Summary
   security-summary:

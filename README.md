@@ -46,8 +46,15 @@ The application automatically uses environment variables in production:
 └── frontend/              # React frontend (optional)
 ```
 
-## �🛡️ CI/CD Pipeline
+## 🛡️ CI/CD Pipeline
 - **GitHub Actions** with comprehensive security scanning
+
+## 🚀 AWS Deployment Status
+**EC2 Instance Ready:** `34.253.128.224` ← **Static Elastic IP**
+- Add GitHub secrets and push to deploy automatically
+- Access app at: `http://34.253.128.224`
+- **Never changes** - production-ready setup!
+- See `aws/` directory for infrastructure scripts
 - **Free security tools**: CodeQL, Bandit, Safety, pip-audit, Trivy, Hadolint
 - **AWS App Runner** deployment with ECR container registry
 - **Automated testing** and code quality checks
