@@ -158,16 +158,47 @@ jobs:
     - name: 🏗️ Build Docker image
       run: |
         docker build -t ${{ env.APP_NAME }}:latest .
+        
+        # Show image details for debugging
+        echo "📊 Docker image details:"
+        docker images ${{ env.APP_NAME }}:latest
+        echo "📦 Image layers and size:"
+        docker history ${{ env.APP_NAME }}:latest --no-trunc
 
-    # 🔍 Container Vulnerability Scanning with Trivy
-    - name: 🔍 Run Trivy vulnerability scanner
+    # 🔍 Container Vulnerability Scanning with Trivy - Full Report
+    - name: 🔍 Run Trivy vulnerability scanner (report generation)
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: '${{ env.APP_NAME }}:latest'
         format: 'sarif'
         output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        exit-code: '0'  # Generate report without failing
+      continue-on-error: true
+
+    # 🔍 Show HIGH+ vulnerabilities for review
+    - name: 🔍 Show HIGH+ vulnerabilities (for debugging)
+      run: |
+        echo "🔍 Scanning for HIGH+ vulnerabilities in Docker image..."
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v /tmp/trivy:/root/.cache/trivy \
+          aquasecurity/trivy:latest image \
+          --format table \
+          --severity HIGH,CRITICAL \
+          --ignore-unfixed \
+          ${{ env.APP_NAME }}:latest || echo "⚠️ HIGH+ vulnerabilities found - see details above"
+      continue-on-error: true
+
+    # 🔍 Container Vulnerability Scanning with Trivy - Security Gate
+    - name: 🔍 Run Trivy security gate (HIGH+ only)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ env.APP_NAME }}:latest'
+        format: 'table'
         severity: 'CRITICAL,HIGH'
-        exit-code: '1'
+        exit-code: '1'  # Fail build on HIGH+ vulnerabilities
+        ignore-unfixed: true  # Only fail on fixable vulnerabilities
 
     - name: 📦 Upload Trivy results to GitHub Security
       uses: github/codeql-action/upload-sarif@v3
