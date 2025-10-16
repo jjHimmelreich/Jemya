@@ -52,7 +52,7 @@ The application automatically uses environment variables in production:
 ## 🚀 AWS Deployment Status
 **EC2 Instance Ready:** `34.253.128.224` ← **Static Elastic IP**
 - Add GitHub secrets and push to deploy automatically
-- Access app at: `http://34.253.128.224`
+- Access app at: `https://34.253.128.224` ← **HTTPS Secure**
 - **Never changes** - production-ready setup!
 - See `aws/` directory for infrastructure scripts
 - **Free security tools**: CodeQL, Bandit, Safety, pip-audit, Trivy, Hadolint

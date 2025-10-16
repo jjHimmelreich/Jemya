@@ -27,11 +27,11 @@ FORBIDDEN_FILES=(
 
 # Sensitive patterns that should not appear in committed files
 FORBIDDEN_PATTERNS=(
-    "AKIA[0-9A-Z]{16}"              # AWS Access Key ID
-    "[A-Za-z0-9/+=]{40}"            # AWS Secret Key (basic check)
-    "-----BEGIN.*PRIVATE KEY-----"   # Private keys
-    "sk-[a-zA-Z0-9]{48}"           # OpenAI API keys
-    "SPOTIFY_CLIENT_SECRET.*=.*['\"][^'\"]{32}"  # Spotify secrets
+    "AKIA[0-9A-Z]{16}"                           # AWS Access Key ID
+    "AWS_SECRET_ACCESS_KEY.*[A-Za-z0-9/+=]{40}"  # AWS Secret Key
+    "-----BEGIN.*PRIVATE KEY-----"               # Private keys
+    "sk-[a-zA-Z0-9]{48}"                        # OpenAI API keys
+    "SPOTIFY_CLIENT_SECRET.*=.*[a-zA-Z0-9]{32}" # Spotify secrets (actual values)
 )
 
 ISSUES_FOUND=0

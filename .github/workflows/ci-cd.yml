@@ -11,6 +11,7 @@ env:
   NODE_VERSION: '18'
   ECR_REPOSITORY: jemya
   APP_NAME: jemya
+  AWS_DEFAULT_REGION: eu-west-1
 
 jobs:
   # 🔍 Security and Code Quality Scans
@@ -52,21 +53,21 @@ jobs:
 
     - name: 🔒 Run Bandit security scan
       run: |
-        bandit -r . -f json -o bandit-report.json || true
-        bandit -r . -f txt || true
-      continue-on-error: true
+        bandit -r . -f json -o bandit-report.json || echo "Bandit found issues - check report"
+        bandit -r . -f txt
+      continue-on-error: false
 
     - name: 🔒 Run Safety dependency vulnerability scan
       run: |
         safety scan --output json > safety-report.json 2>/dev/null || echo "Safety scan completed with warnings"
-        safety scan --output screen || echo "Safety scan completed"
-      continue-on-error: true
+        safety scan --output screen
+      continue-on-error: false
 
     - name: 🔒 Run pip-audit for dependency vulnerabilities
       run: |
-        pip-audit --format=json --output=pip-audit-report.json || true
-        pip-audit || true
-      continue-on-error: true
+        pip-audit --format=json --output=pip-audit-report.json || echo "pip-audit found issues - check report"
+        pip-audit
+      continue-on-error: false
 
     # 📦 Upload security scan results
     - name: 📦 Upload security scan artifacts
@@ -123,6 +124,8 @@ jobs:
         image-ref: '${{ env.APP_NAME }}:latest'
         format: 'sarif'
         output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
+        exit-code: '1'
 
     - name: 📦 Upload Trivy results to GitHub Security
       uses: github/codeql-action/upload-sarif@v3
@@ -183,7 +186,7 @@ jobs:
 
     - name: 🧪 Run tests
       run: |
-        pytest --cov=. --cov-report=xml --cov-report=html || true
+        pytest --cov=. --cov-report=xml --cov-report=html
 
     # 🐳 Build and test Docker image
     - name: 🐳 Build Docker image
@@ -195,16 +198,28 @@ jobs:
       run: |
         # Test that the image can start (basic smoke test)
         # Uses simplified configuration system with environment variables
-        docker run --rm -d --name test-container -p 8501:8501 \
+        # Start container and test it actually works
+        docker run -d --name test-container -p 8501:8501 \
           -e SPOTIFY_CLIENT_ID=test \
           -e SPOTIFY_CLIENT_SECRET=test \
           -e SPOTIFY_REDIRECT_URI=https://test.com/callback \
           -e OPENAI_API_KEY=test \
           -e ENVIRONMENT=production \
-          ${{ env.APP_NAME }}:${{ github.sha }} &
-        sleep 10
-        docker logs test-container
-        docker stop test-container || true
+          ${{ env.APP_NAME }}:${{ github.sha }}
+        
+        # Wait for container to start and check health
+        sleep 15
+        
+        # Check if container is still running (didn't crash)
+        if ! docker ps | grep test-container > /dev/null; then
+          echo "❌ Container failed to start or crashed"
+          docker logs test-container || true
+          exit 1
+        fi
+        
+        echo "✅ Container started successfully"
+        docker logs test-container --tail 20
+        docker stop test-container
 
   # 🚀 Deploy to AWS
   deploy:
@@ -313,6 +328,7 @@ jobs:
         # Pull and run new image
         docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
         
+        # Run container on port 8501 (Nginx will proxy from port 80)
         docker run -d \
           --name jemya-app \
           -p 8501:8501 \
@@ -324,8 +340,85 @@ jobs:
           -e ENVIRONMENT="production" \
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
         
+        # Ensure Nginx is installed and configured
+        echo "🔧 Checking Nginx configuration..."
+        
+        # Install Nginx if not present
+        if ! command -v nginx &> /dev/null; then
+            echo "📦 Installing Nginx..."
+            sudo yum update -y
+            sudo yum install -y nginx
+            sudo systemctl enable nginx
+        fi
+        
+        # Create Nginx configuration for Jemya with SSL support
+        echo "⚙️ Configuring Nginx reverse proxy with HTTPS..."
+        sudo tee /etc/nginx/conf.d/jemya.conf << NGINXEOF
+# HTTPS server (main configuration)
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    
+    # Self-signed SSL certificate (will be replaced with proper cert)
+    ssl_certificate /etc/nginx/ssl/jemya.crt;
+    ssl_certificate_key /etc/nginx/ssl/jemya.key;
+    
+    # Modern SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    
+    location / {
+        proxy_pass http://localhost:8501;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        
+        # WebSocket support for Streamlit
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Increase timeouts for Streamlit
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+
+# HTTP server (redirect to HTTPS)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+    
+    # Redirect all HTTP traffic to HTTPS
+    return 301 https://\$host\$request_uri;
+}
+NGINXEOF
+        
+        # Create SSL directory and self-signed certificate
+        echo "🔐 Setting up SSL certificate..."
+        sudo mkdir -p /etc/nginx/ssl
+        
+        # Generate self-signed certificate (temporary)
+        sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/nginx/ssl/jemya.key \
+            -out /etc/nginx/ssl/jemya.crt \
+            -subj "/C=US/ST=Cloud/L=AWS/O=Jemya/OU=IT Department/CN=jemya-app"
+        
+        # Test and restart Nginx
+        sudo nginx -t && sudo systemctl restart nginx
+        sudo systemctl enable nginx
+        
         echo "✅ Deployment completed!"
+        echo "🌐 App running on port 8501 (internal)"  
+        echo "🌍 Nginx proxying from port 80 (public)"
         docker ps | grep jemya-app || echo "Container status check failed"
+        sudo systemctl status nginx --no-pager -l || echo "Nginx status check failed"
         EOF
         
         # Setup SSH key
@@ -352,10 +445,26 @@ jobs:
         echo "🔗 ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
         echo ""
         echo "🔧 To deploy manually, SSH to your instance and run:"
+        echo ""
+        echo "# 1. Login to ECR and pull image:"
         echo "aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}"
         echo "docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-        echo "docker stop jemya-app && docker rm jemya-app"
-        echo "docker run -d --name jemya-app -p 8501:8501 --restart unless-stopped [ENV_VARS] ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+        echo ""
+        echo "# 2. Deploy container:"
+        echo "docker stop jemya-app && docker rm jemya-app || true"
+        echo "docker run -d --name jemya-app -p 8501:8501 --restart unless-stopped \\"
+        echo "  -e SPOTIFY_CLIENT_ID=your_client_id \\"
+        echo "  -e SPOTIFY_CLIENT_SECRET=your_client_secret \\"
+        echo "  -e SPOTIFY_REDIRECT_URI=your_redirect_uri \\"
+        echo "  -e OPENAI_API_KEY=your_openai_key \\"
+        echo "  -e ENVIRONMENT=production \\"
+        echo "  ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+        echo ""
+        echo "# 3. Set up Nginx with HTTPS (if not already configured):"
+        echo "sudo yum install -y nginx openssl"
+        echo "# Configure Nginx to proxy HTTPS (443) -> 8501"
+        echo "# Generate SSL certificate and configure HTTPS redirect"
+        echo "# Your app will be available on port 443 (HTTPS secure)"
 
     # 📊 Deployment Summary
     - name: 📊 Deployment Summary
@@ -372,13 +481,17 @@ jobs:
           echo "### �️ EC2 Deployment (Auto-Discovered)" >> $GITHUB_STEP_SUMMARY
           echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
           echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Status**: Automatically deployed via SSH" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **App URL**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (Port 443 HTTPS)" >> $GITHUB_STEP_SUMMARY
+          echo "🔄 **HTTP Redirect**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\` → HTTPS" >> $GITHUB_STEP_SUMMARY
+          echo "🐳 **Container**: Port 8501 (internal)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Status**: Deployed with Nginx HTTPS reverse proxy" >> $GITHUB_STEP_SUMMARY
         else
           echo "### 🖥️ EC2 Instance Found (Manual Deployment Required)" >> $GITHUB_STEP_SUMMARY
           echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
           echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **App URL**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (Port 443 HTTPS)" >> $GITHUB_STEP_SUMMARY
+          echo "🔄 **HTTP Redirect**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\` → HTTPS" >> $GITHUB_STEP_SUMMARY
+          echo "🐳 **Container**: Port 8501 (internal)" >> $GITHUB_STEP_SUMMARY
           echo "⚠️ **Status**: Add EC2_SSH_KEY secret for auto-deployment" >> $GITHUB_STEP_SUMMARY
         fi
         

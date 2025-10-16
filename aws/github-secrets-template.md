@@ -30,7 +30,7 @@ Name: SPOTIFY_CLIENT_SECRET
 Value: [Your Spotify app client secret]
 
 Name: SPOTIFY_REDIRECT_URI
-Value: http://[YOUR_EC2_IP]/callback
+Value: https://[YOUR_EC2_IP]/callback
 
 Name: OPENAI_API_KEY
 Value: [Your OpenAI API key - starts with sk-]
@@ -72,7 +72,7 @@ The CI/CD pipeline will:
 
 ## 🌐 Access Your App
 
-Your app will be available at: `http://[YOUR_EC2_IP]`
+Your app will be available at: `https://[YOUR_EC2_IP]` (HTTPS secure)
 
 To find your current EC2 IP:
 ```bash
