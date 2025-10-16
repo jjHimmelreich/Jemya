@@ -6,7 +6,10 @@ This script will test the search logic for all 28 tracks from the AI-generated p
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-import conf
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import configuration_manager as conf
 import json
 from typing import Dict, List, Any
 
@@ -45,9 +48,9 @@ test_tracks = [
 def get_spotify_client():
     """Get authenticated Spotify client"""
     sp_oauth = SpotifyOAuth(
-        client_id=conf.CLIENT_ID,
-        client_secret=conf.CLIENT_SECRET,
-        redirect_uri=conf.REDIRECT_URI,
+        client_id=conf.SPOTIFY_CLIENT_ID,
+        client_secret=conf.SPOTIFY_CLIENT_SECRET,
+        redirect_uri=conf.SPOTIFY_REDIRECT_URI,
         scope="user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state"
     )
     

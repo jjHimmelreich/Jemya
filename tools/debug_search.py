@@ -7,12 +7,10 @@ Uses existing session state if available
 import streamlit as st
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-import conf
 import sys
 import os
-
-# Add current directory to path to import local modules
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import configuration_manager as conf
 
 def test_single_track_search(sp, track_name, artist_name):
     """Test search for a single track with detailed output"""
@@ -75,9 +73,9 @@ def main():
     try:
         # Try to use cached token
         sp_oauth = SpotifyOAuth(
-            client_id=conf.CLIENT_ID,
-            client_secret=conf.CLIENT_SECRET,
-            redirect_uri=conf.REDIRECT_URI,
+            client_id=conf.SPOTIFY_CLIENT_ID,
+            client_secret=conf.SPOTIFY_CLIENT_SECRET,
+            redirect_uri=conf.SPOTIFY_REDIRECT_URI,
             scope="user-read-playbook-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playbook-state"
         )
         
@@ -94,18 +92,7 @@ def main():
     
     # Test some problematic tracks from the list
     test_tracks = [
-        ("Andras", "Avishai Cohen"),
-        ("Hava Nagila", "To Life"),
-        ("Michelle", "The Beatles, Violin"),
-        ("Prelude, Op. 11 No. 15", "Alexander Scriabin"),
-        ("Arnica Montana", "Michel Petrucciani"),
-        ("Air on the G String", "The Swingle Singers"),
-        ("Kiss From a Rose (Instrumental)", "Midnight String Quartet"),
-        ("Being There", "Tord Gustavsen Trio"),
-        ("Le Temps des Cerises", "Barbara"),
-        ("Song for the Journey", "Dirk Maassen"),
-        ("Windmills of Your Mind (Instrumental)", "Earl Klugh"),
-        ("Inner Peace", "Brian Crain"),
+        ("Piano Concerto No. 21 in C Major, K. 467: Andante", "Wolfgang Amadeus Mozart, Vienna Philharmonic, Maurizio Pollini"),
     ]
     
     found_count = 0

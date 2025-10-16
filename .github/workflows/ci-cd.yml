@@ -176,14 +176,16 @@ jobs:
       run: |
         docker build -t ${{ env.APP_NAME }}:${{ github.sha }} .
 
-    - name: 🧪 Test Docker image
+    # 🧪 Test Docker image
       run: |
         # Test that the image can start (basic smoke test)
+        # Uses simplified configuration system with environment variables
         docker run --rm -d --name test-container -p 8501:8501 \
           -e SPOTIFY_CLIENT_ID=test \
           -e SPOTIFY_CLIENT_SECRET=test \
           -e SPOTIFY_REDIRECT_URI=https://test.com/callback \
           -e OPENAI_API_KEY=test \
+          -e ENVIRONMENT=production \
           ${{ env.APP_NAME }}:${{ github.sha }} &
         sleep 10
         docker logs test-container
@@ -217,7 +219,7 @@ jobs:
     - name: 🏗️ Build and push Docker image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: jemya
+        ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
         # Build image
@@ -236,7 +238,7 @@ jobs:
           --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} \
           --source-configuration '{
             "ImageRepository": {
-              "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/jemya:${{ github.sha }}",
+              "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
               "ImageConfiguration": {
                 "Port": "8501",
                 "RuntimeEnvironmentVariables": {
@@ -257,7 +259,7 @@ jobs:
       run: |
         echo "🚀 Deployment completed!"
         echo "🔗 App Runner service: ${{ secrets.APP_RUNNER_SERVICE_ARN }}"
-        echo "📦 Docker image: ${{ steps.login-ecr.outputs.registry }}/jemya:${{ github.sha }}"
+        echo "📦 Docker image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
 
   # 📋 Security Summary
   security-summary:
