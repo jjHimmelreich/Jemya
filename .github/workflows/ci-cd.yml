@@ -129,6 +129,7 @@ jobs:
       if: always() && hashFiles('trivy-results.sarif') != ''
       with:
         sarif_file: 'trivy-results.sarif'
+        category: 'trivy-image'
       continue-on-error: true
 
     # 🔍 Additional Trivy scans
@@ -146,6 +147,7 @@ jobs:
       if: always() && hashFiles('trivy-fs-results.sarif') != ''
       with:
         sarif_file: 'trivy-fs-results.sarif'
+        category: 'trivy-filesystem'
       continue-on-error: true
 
   # 🧪 Build and Test
