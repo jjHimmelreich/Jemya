@@ -1,6 +1,6 @@
 # Core dependencies
 streamlit>=1.28.0
-spotipy==2.24.0
+spotipy==2.25.1
 openai==1.59.3
 
 # Additional utilities
