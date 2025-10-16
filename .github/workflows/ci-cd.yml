@@ -370,9 +370,14 @@ jobs:
         
         # Check if we have SSH key for deployment
         if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-          echo "⚠️ EC2_SSH_KEY secret not found - will skip SSH deployment"
-          echo "💡 Add EC2_SSH_KEY to GitHub secrets for automatic deployment"
-          echo "ssh_available=false" >> $GITHUB_OUTPUT
+          echo "❌ EC2_SSH_KEY secret not found!"
+          echo "💡 Please add EC2_SSH_KEY to GitHub secrets to enable deployment"
+          echo ""
+          echo "To add the SSH key:"
+          echo "1. Go to your repository Settings > Secrets and variables > Actions"
+          echo "2. Add a new secret named 'EC2_SSH_KEY'"
+          echo "3. Paste the content of your private SSH key (jemya-key-20251016.pem)"
+          exit 1
         else
           echo "✅ SSH key available for deployment"
           echo "ssh_available=true" >> $GITHUB_OUTPUT
@@ -380,7 +385,6 @@ jobs:
 
     # 🚀 Deploy to Auto-Discovered EC2 Instance
     - name: 🚀 Deploy to EC2 Instance
-      if: steps.discover-ec2.outputs.ssh_available == 'true'
       run: |
         echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.public_ip }}"
         
