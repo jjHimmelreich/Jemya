@@ -58,8 +58,8 @@ jobs:
 
     - name: 🔒 Run Safety dependency vulnerability scan
       run: |
-        safety check --json --output safety-report.json || true
-        safety check || true
+        safety scan --output json --save-as safety-report.json || true
+        safety scan || true
       continue-on-error: true
 
     - name: 🔒 Run pip-audit for dependency vulnerabilities
@@ -101,7 +101,7 @@ jobs:
         no-fail: true
 
     - name: 📦 Upload Hadolint results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       if: always()
       with:
         sarif_file: hadolint-results.sarif
