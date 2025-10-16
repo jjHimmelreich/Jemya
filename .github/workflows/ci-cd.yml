@@ -83,6 +83,10 @@ jobs:
   docker-security:
     name: 🐳 Docker Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
     
     steps:
     - name: 📥 Checkout code
@@ -102,9 +106,10 @@ jobs:
 
     - name: 📦 Upload Hadolint results to GitHub Security
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: always() && hashFiles('hadolint-results.sarif') != ''
       with:
         sarif_file: hadolint-results.sarif
+      continue-on-error: true
 
     # 🏗️ Build Docker image for scanning
     - name: 🏗️ Build Docker image
@@ -120,10 +125,11 @@ jobs:
         output: 'trivy-results.sarif'
 
     - name: 📦 Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('trivy-results.sarif') != ''
       with:
         sarif_file: 'trivy-results.sarif'
+      continue-on-error: true
 
     # 🔍 Additional Trivy scans
     - name: 🔍 Run Trivy filesystem scan
@@ -136,10 +142,11 @@ jobs:
       continue-on-error: true
 
     - name: 📦 Upload Trivy filesystem results
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       if: always() && hashFiles('trivy-fs-results.sarif') != ''
       with:
         sarif_file: 'trivy-fs-results.sarif'
+      continue-on-error: true
 
   # 🧪 Build and Test
   build-and-test:
