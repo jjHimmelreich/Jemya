@@ -177,6 +177,7 @@ jobs:
         docker build -t ${{ env.APP_NAME }}:${{ github.sha }} .
 
     # 🧪 Test Docker image
+    - name: 🧪 Test Docker image
       run: |
         # Test that the image can start (basic smoke test)
         # Uses simplified configuration system with environment variables
