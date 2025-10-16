@@ -3,10 +3,12 @@ AI Functions Module
 Handles all OpenAI interactions for the Jemya playlist generator.
 """
 
-from openai import OpenAI
 import json
 import re
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+from openai import OpenAI
+
 import configuration_manager as conf
 
 

@@ -4,6 +4,7 @@ Uses conf.py for local development, environment variables for production
 """
 import os
 
+
 def get_config(key: str, default: str = None):
     """Get configuration value from environment or conf.py fallback"""
     # First try environment variable

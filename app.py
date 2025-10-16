@@ -3,16 +3,17 @@ Jemya - AI Playlist Generator
 Main Streamlit application file (refactored version)
 """
 
-import streamlit as st
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-import time
 import base64
+import time
 
+import spotipy
+import streamlit as st
+from spotipy.oauth2 import SpotifyOAuth
+
+from ai_manager import AIManager
 # Import our custom modules
 from conversation_manager import ConversationManager
 from spotify_manager import SpotifyManager
-from ai_manager import AIManager
 
 # Initialize managers
 conversation_manager = ConversationManager()

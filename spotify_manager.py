@@ -3,15 +3,17 @@ Spotify Library Module
 Handles all Spotify API interactions for the Jemya playlist generator.
 """
 
-import streamlit as st
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-import time
-import re
 import json
-from typing import Dict, List, Optional, Tuple, Any
-import configuration_manager as conf
+import re
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
+import spotipy
+import streamlit as st
 from openai import OpenAI
+from spotipy.oauth2 import SpotifyOAuth
+
+import configuration_manager as conf
 
 
 class SpotifyManager:
