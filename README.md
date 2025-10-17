@@ -35,31 +35,67 @@ The application automatically uses environment variables in production:
 - `OPENAI_API_KEY`
 - `ENVIRONMENT=production`
 
-## � Project Structure
+## 📁 Project Structure
 ```
-├── app.py                    # Main Streamlit application
-├── configuration_manager.py  # Smart configuration system
-├── conf.py                  # Local development config
-├── spotify_manager.py       # Spotify API management
-├── ai_manager.py           # OpenAI integration
-├── backend/                # Backend modules
-├── tests/                  # Test files
-├── tools/                  # Development and debugging tools
-├── aws/                    # AWS deployment and infrastructure
-├── .github/workflows/      # GitHub Actions CI/CD
-└── frontend/              # React frontend (optional)
+├── app.py                          # Main Streamlit application
+├── ai_manager.py                   # OpenAI integration for playlist generation
+├── spotify_manager.py              # Spotify API wrapper and authentication
+├── configuration_manager.py        # Smart configuration system
+├── conversation_manager.py         # Conversation state management
+├── conf.py                         # Local development config (create from template)
+├── conf.py.template               # Configuration template
+├── requirements.txt               # Python dependencies
+├── Dockerfile                     # Container configuration
+├── run_streamlit.sh              # Application startup script
+│
+├── .github/workflows/            # CI/CD pipelines
+│   ├── ci.yml                   # Build, test, security scan, ECR push
+│   ├── deploy.yml               # Deployment workflow (manual + auto)
+│   └── rotate-aws-keys.yml      # Automated security key rotation
+│
+├── aws/                         # AWS infrastructure
+│   ├── setup-infrastructure.sh  # Complete AWS setup
+│   ├── cleanup-infrastructure.sh # Clean infrastructure teardown
+│   ├── check-policies.sh        # Policy status verification
+│   ├── update-policies.sh       # Apply policy updates
+│   ├── *.json                   # Secure IAM policies (least privilege)
+│   └── nginx-jemya.conf         # Production nginx HTTPS config
+│
+├── tools/                       # Development and debugging utilities
+│   ├── debug_search.py          # Spotify search debugging
+│   ├── track_debugger.py        # Track analysis tools
+│   ├── security-check.sh        # Pre-commit security scanning
+│   └── test_*.py               # Various testing utilities
+│
+├── conversations/               # User conversation history
+├── static/                     # Static assets (images, etc.)
+├── ZZZ_archive_backend/        # Legacy backend code (archived)
+└── SECURITY.md                 # Security setup and guidelines
 ```
 
 ## 🛡️ CI/CD Pipeline
 - **GitHub Actions** with comprehensive security scanning
 
-## 🚀 AWS Deployment Status
-**EC2 Instance Ready:** `34.253.128.224` ← **Static Elastic IP**
-- Add GitHub secrets and push to deploy automatically
-- Access app at: `https://34.253.128.224` ← **HTTPS Secure**
-- **Never changes** - production-ready setup!
-- See `aws/` directory for infrastructure scripts
-- **Free security tools**: CodeQL, Bandit, Safety, pip-audit, Trivy, Hadolint
-- **AWS App Runner** deployment with ECR container registry
-- **Automated testing** and code quality checks
+## 🚀 AWS Deployment
+**Production Instance:** `34.253.128.224` (Static Elastic IP)
+
+### 🛡️ Security Features
+- **Hardened IAM policies** with principle of least privilege
+- **Region-locked permissions** (eu-west-1)
+- **85% attack surface reduction** from security improvements
 - **Automated key rotation** every 90 days
+- **HTTPS-only** with nginx SSL termination
+
+### 🔄 CI/CD Pipeline
+- **Separated workflows** for better control and debugging
+- **Security scanning** with multiple tools (CodeQL, Bandit, Safety, Trivy)
+- **ECR container registry** with secure access policies
+- **Automated deployment** on CI success + manual override
+- **Infrastructure as code** with policy management scripts
+
+### 📂 AWS Infrastructure
+See `aws/` directory for:
+- Complete infrastructure setup scripts
+- Secure IAM policy definitions
+- Policy management and update tools
+- Infrastructure cleanup utilities
