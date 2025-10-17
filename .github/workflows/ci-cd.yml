@@ -693,7 +693,11 @@ jobs:
         
         # Test container health
         echo "🔍 Testing container health..."
-        CONTAINER_STATUS=$(ssh -i ~/.ssh/jemya-key-20251016.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ec2-user@"$PUBLIC_IP" "docker ps --filter name=jemya-app --format '{{.Status}}'" 2>/dev/null || echo "FAILED")
+        # Create temporary SSH key for verification
+        echo "${{ secrets.EC2_SSH_KEY }}" > verify_key.pem
+        chmod 600 verify_key.pem
+        CONTAINER_STATUS=$(ssh -i verify_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ec2-user@"$PUBLIC_IP" "docker ps --filter name=jemya-app --format '{{.Status}}'" 2>/dev/null || echo "FAILED")
+        rm -f verify_key.pem
         
         if echo "$CONTAINER_STATUS" | grep -q "Up"; then
           echo "✅ Container is running: $CONTAINER_STATUS"
