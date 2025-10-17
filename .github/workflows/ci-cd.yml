@@ -86,7 +86,7 @@ jobs:
         languages: python
         queries: security-extended,security-and-quality
 
-    - name: 🔍 Perform CodeQL Analysis
+    - name: 🔍 Perform CodeQL Vulnerabilities Analysis
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:python"
