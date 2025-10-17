@@ -138,7 +138,7 @@ show_warning() {
     echo "• EC2 instances tagged with Name=jemya-instance"
     echo "• ECR repository: $ECR_REPOSITORY"
     echo "• IAM user: jemya-deployment-user (and access keys)"
-    echo "• IAM policies: JemyaDeploymentPolicy, JemyaAdminUserPolicy"
+    echo "• IAM policies: JemyaDeploymentPolicy, JemyaAdminUserPolicy, JemyaEC2ECRAccess"
     echo "• Security groups: jemya-sg"
     echo "• Key pairs: jemya-key-*"
     echo ""
@@ -236,7 +236,7 @@ cleanup_iam_resources() {
     fi
     
     # IAM Policies
-    local policies=("JemyaDeploymentPolicy" "JemyaAdminUserPolicy")
+    local policies=("JemyaDeploymentPolicy" "JemyaAdminUserPolicy" "JemyaEC2ECRAccess")
     for policy_name in "${policies[@]}"; do
         local policy_arn="arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):policy/$policy_name"
         if aws iam get-policy --policy-arn "$policy_arn" &>/dev/null; then

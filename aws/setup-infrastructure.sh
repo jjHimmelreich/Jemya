@@ -70,11 +70,28 @@ if aws ecr describe-repositories --repository-names jemya --region eu-west-1 &> 
     echo -e "${GREEN}✅ ECR repository already exists: ${ECR_REPO_URI}${NC}"
 else
     echo -e "${YELLOW}🔨 Creating ECR repository...${NC}"
-    if [ -f "./aws/create-deployment-user.sh" ]; then
-        ./aws/create-deployment-user.sh
-        ECR_REPO_URI=$(aws ecr describe-repositories --repository-names jemya --region eu-west-1 --query 'repositories[0].repositoryUri' --output text 2>/dev/null || echo "")
+    aws ecr create-repository --repository-name jemya --region eu-west-1
+    ECR_REPO_URI=$(aws ecr describe-repositories --repository-names jemya --region eu-west-1 --query 'repositories[0].repositoryUri' --output text)
+    echo -e "${GREEN}✅ ECR repository created: ${ECR_REPO_URI}${NC}"
+fi
+
+# Check and create ECR access policy for EC2
+echo -e "${YELLOW}🔐 Setting up ECR access policy for EC2...${NC}"
+ECR_POLICY_NAME="JemyaEC2ECRAccess"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ECR_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${ECR_POLICY_NAME}"
+
+if aws iam get-policy --policy-arn "$ECR_POLICY_ARN" &> /dev/null; then
+    echo -e "${GREEN}✅ ECR access policy already exists: ${ECR_POLICY_NAME}${NC}"
+else
+    echo -e "${YELLOW}🔨 Creating ECR access policy...${NC}"
+    if [ -f "./aws/ec2-ecr-access-policy.json" ]; then
+        aws iam create-policy --policy-name "$ECR_POLICY_NAME" \
+            --policy-document file://aws/ec2-ecr-access-policy.json \
+            --description "ECR access for Jemya EC2 instance"
+        echo -e "${GREEN}✅ ECR access policy created: ${ECR_POLICY_NAME}${NC}"
     else
-        echo -e "${RED}❌ ECR setup script not found: aws/create-deployment-user.sh${NC}"
+        echo -e "${RED}❌ ECR policy file not found: aws/ec2-ecr-access-policy.json${NC}"
         exit 1
     fi
 fi
@@ -125,15 +142,12 @@ if [ -n "$EXISTING_INSTANCES" ]; then
     echo -e "${CYAN}🎯 Using instance: ${INSTANCE_ID} (${PUBLIC_IP})${NC}"
 else
     echo -e "${YELLOW}🔨 No existing EC2 instance found. Creating new one...${NC}"
-    if [ -f "./aws/create-ec2.sh" ]; then
-        ./aws/create-ec2.sh
-        # Get the created instance info
-        INSTANCE_ID=$(tail -20 ec2-instance-info.txt | grep "INSTANCE_ID=" | cut -d'=' -f2)
-        PUBLIC_IP=$(tail -20 ec2-instance-info.txt | grep "PUBLIC_IP=" | cut -d'=' -f2)
-    else
-        echo -e "${RED}❌ EC2 setup script not found: aws/create-ec2.sh${NC}"
-        exit 1
-    fi
+    echo -e "${RED}❌ EC2 instance creation requires manual setup${NC}"
+    echo -e "${YELLOW}💡 Please create an EC2 instance manually with:${NC}"
+    echo -e "${YELLOW}   - Tag: Name=jemya-instance${NC}"
+    echo -e "${YELLOW}   - Instance Role: JemyaEC2SessionManagerRole${NC}"
+    echo -e "${YELLOW}   - Security Group: jemya-sg (ports 22, 80, 443)${NC}"
+    exit 1
 fi
 
 echo ""
@@ -151,6 +165,28 @@ if [ -n "$INSTANCE_ID" ]; then
         echo -e "${GREEN}✅ Instance is reachable${NC}"
     else
         echo -e "${YELLOW}⚠️ Instance might not be fully ready yet${NC}"
+    fi
+    
+    # Check and attach ECR policy to EC2 instance role
+    echo -e "${YELLOW}🔐 Ensuring ECR access for EC2 instance...${NC}"
+    INSTANCE_ROLE=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID \
+        --query 'Reservations[0].Instances[0].IamInstanceProfile.Arn' --output text --region eu-west-1)
+    
+    if [ "$INSTANCE_ROLE" != "None" ] && [ -n "$INSTANCE_ROLE" ]; then
+        ROLE_NAME=$(echo "$INSTANCE_ROLE" | sed 's/.*\///')
+        echo -e "${GREEN}✅ Instance has IAM role: ${ROLE_NAME}${NC}"
+        
+        # Check if ECR policy is attached
+        if aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
+           --query "AttachedPolicies[?PolicyName=='$ECR_POLICY_NAME']" --output text | grep -q "$ECR_POLICY_NAME"; then
+            echo -e "${GREEN}✅ ECR access policy already attached to role${NC}"
+        else
+            echo -e "${YELLOW}🔨 Attaching ECR access policy to EC2 role...${NC}"
+            aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$ECR_POLICY_ARN"
+            echo -e "${GREEN}✅ ECR access policy attached to EC2 role${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️ EC2 instance has no IAM role - ECR access may not work${NC}"
     fi
 fi
 

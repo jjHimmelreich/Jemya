@@ -13,6 +13,7 @@ This directory contains scripts and configurations for setting up and managing J
 ### Configuration Files
 - `aws-deployment-policy.json` - IAM policy for GitHub Actions deployment user
 - `admin-user-policy.json` - IAM policy for admin user access
+- `ec2-ecr-access-policy.json` - IAM policy for EC2 ECR access
 - `nginx-jemya.conf` - Production nginx configuration with HTTPS
 
 ### Documentation
