@@ -1,0 +1,83 @@
+name: 🧪 Test SSH Connectivity
+
+on:
+  workflow_dispatch:  # Manual trigger for testing
+  push:
+    paths:
+      - 'test-ssh-*.sh'
+
+env:
+  AWS_DEFAULT_REGION: eu-west-1
+
+jobs:
+  test-ssh:
+    name: 🔌 Test SSH Connection to EC2
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Setup SSH key
+      run: |
+        echo "Setting up SSH key for EC2 connection"
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/jemya-key.pem
+        chmod 600 ~/.ssh/jemya-key.pem
+        
+        # Test if key is valid
+        ssh-keygen -y -f ~/.ssh/jemya-key.pem > /dev/null
+        echo "✅ SSH key is valid"
+
+    - name: 🌐 Test network connectivity
+      run: |
+        echo "Testing network connectivity to EC2 instance"
+        PUBLIC_IP="34.253.128.224"
+        
+        # Test ping
+        ping -c 3 $PUBLIC_IP || echo "Ping failed (normal for EC2)"
+        
+        # Test port 22
+        nc -zv $PUBLIC_IP 22
+        echo "✅ Port 22 is accessible"
+
+    - name: 🔌 Test SSH connection
+      run: |
+        PUBLIC_IP="34.253.128.224"
+        
+        echo "Testing SSH connection to EC2 instance"
+        ssh -i ~/.ssh/jemya-key.pem \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            -o BatchMode=yes \
+            ec2-user@$PUBLIC_IP << 'EOF'
+        echo "✅ SSH connection from GitHub Actions successful"
+        echo "Hostname: $(hostname)"
+        echo "User: $(whoami)"
+        echo "Date: $(date)"
+        echo "Uptime: $(uptime)"
+        
+        # Test Docker
+        if command -v docker > /dev/null; then
+            echo "✅ Docker available: $(docker --version)"
+        else
+            echo "❌ Docker not available"
+        fi
+        
+        # Test AWS CLI
+        if command -v aws > /dev/null; then
+            echo "✅ AWS CLI available: $(aws --version)"
+        else
+            echo "❌ AWS CLI not available"
+        fi
+        
+        exit 0
+        EOF
+        
+        echo "✅ SSH connectivity test completed successfully!"
+
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        rm -f ~/.ssh/jemya-key.pem
+        echo "✅ SSH key cleaned up"
