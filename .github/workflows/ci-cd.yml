@@ -353,15 +353,26 @@ jobs:
           exit 1
         fi
         
-        # Parse instance info
-        INSTANCE_ID=$(echo $INSTANCE_INFO | cut -f1)
-        PUBLIC_IP=$(echo $INSTANCE_INFO | cut -f2)
-        PRIVATE_IP=$(echo $INSTANCE_INFO | cut -f3)
+        # Parse instance info with better error handling
+        INSTANCE_ID=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f1)
+        PUBLIC_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f2)
+        PRIVATE_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f3)
         
         echo "✅ Found Jemya EC2 instance:"
-        echo "   Instance ID: $INSTANCE_ID"
-        echo "   Public IP: $PUBLIC_IP"
-        echo "   Private IP: $PRIVATE_IP"
+        echo "   Instance ID: '$INSTANCE_ID'"
+        echo "   Public IP: '$PUBLIC_IP'"
+        echo "   Private IP: '$PRIVATE_IP'"
+        
+        # Validate parsed values
+        if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+          echo "❌ Invalid Instance ID: '$INSTANCE_ID'"
+          exit 1
+        fi
+        
+        if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "None" ]; then
+          echo "❌ Invalid Public IP: '$PUBLIC_IP'"
+          exit 1
+        fi
         
         # Set outputs for next steps
         echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
@@ -382,8 +393,19 @@ jobs:
     # 🚀 Deploy to Auto-Discovered EC2 Instance via SSH
     - name: 🚀 Deploy to EC2 Instance
       run: |
-        echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.instance_id }}"
-        echo "📍 Public IP: ${{ steps.discover-ec2.outputs.public_ip }}"
+        # Get and validate variables
+        INSTANCE_ID="${{ steps.discover-ec2.outputs.instance_id }}"
+        PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
+        
+        echo "🚀 Deploying to EC2 instance:"
+        echo "   Instance ID: '$INSTANCE_ID'"
+        echo "   Public IP: '$PUBLIC_IP'"
+        
+        # Additional validation
+        if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "None" ]; then
+          echo "❌ Invalid PUBLIC_IP: '$PUBLIC_IP'"
+          exit 1
+        fi
 
         # Write and validate SSH key
         echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
@@ -394,8 +416,8 @@ jobs:
         echo "✅ SSH key is valid"
         
         # Test network connectivity
-        echo "🌐 Testing network connectivity..."
-        nc -zv ${{ steps.discover-ec2.outputs.public_ip }} 22
+        echo "🌐 Testing network connectivity to $PUBLIC_IP:22..."
+        nc -zv "$PUBLIC_IP" 22
         echo "✅ Port 22 is accessible"
 
         # Create deployment script
@@ -436,10 +458,10 @@ jobs:
 
         # Copy and execute deployment script via SSH
         echo "📤 Copying deployment script to EC2..."
-        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes deploy_script.sh ec2-user@${{ steps.discover-ec2.outputs.public_ip }}:/tmp/
+        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes deploy_script.sh ec2-user@"$PUBLIC_IP":/tmp/
         
         echo "🚀 Executing deployment on EC2..."
-        ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@${{ steps.discover-ec2.outputs.public_ip }} << 'EOF'
+        ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@"$PUBLIC_IP" << 'EOF'
         chmod +x /tmp/deploy_script.sh
         /tmp/deploy_script.sh
         exit 0
@@ -451,7 +473,7 @@ jobs:
         
         # Verify deployment
         echo "🔍 Verifying deployment..."
-        curl -f --connect-timeout 10 http://${{ steps.discover-ec2.outputs.public_ip }}:8501/health || echo "⚠️ Health check endpoint not available (this is normal if no health endpoint exists)"
+        curl -f --connect-timeout 10 "http://$PUBLIC_IP:8501/health" || echo "⚠️ Health check endpoint not available (this is normal if no health endpoint exists)"
 
     # 📊 Deployment Summary
     - name: 📊 Deployment Summary
@@ -466,8 +488,8 @@ jobs:
         
         # Always show SSH deployment since we have the SSH key
         echo "### ☁️ EC2 Deployment (SSH Auto-Deploy)" >> $GITHUB_STEP_SUMMARY
-          echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
         echo "🔗 **App URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}:8501\` (Direct Docker access)" >> $GITHUB_STEP_SUMMARY
         echo "🔄 **Alternative**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (if Nginx configured)" >> $GITHUB_STEP_SUMMARY
         echo "🐳 **Container**: jemya-app running on port 8501" >> $GITHUB_STEP_SUMMARY
