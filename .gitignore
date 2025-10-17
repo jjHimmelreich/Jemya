@@ -31,3 +31,6 @@ aws-credentials.txt
 **/credentials/*
 **/keys/*
 **/secrets/*
+
+# Generated IP range files (update frequently)
+github-actions-*-ranges.txt
