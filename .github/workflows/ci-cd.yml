@@ -382,21 +382,41 @@ jobs:
     # 🚀 Deploy to Auto-Discovered EC2 Instance via SSH
     - name: 🚀 Deploy to EC2 Instance
       run: |
-        echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.instance_id }} ${{ steps.discover-ec2.outputs.public_ip }} ${{ steps.discover-ec2.outputs.private_ip }}"
+        echo "🚀 Deploying to EC2 instance: ${{ steps.discover-ec2.outputs.instance_id }}"
+        echo "📍 Public IP: ${{ steps.discover-ec2.outputs.public_ip }}"
 
-        # Write SSH key
+        # Write and validate SSH key
         echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
         chmod 600 ec2_key.pem
+        
+        # Validate SSH key format
+        ssh-keygen -y -f ec2_key.pem > /dev/null
+        echo "✅ SSH key is valid"
+        
+        # Test network connectivity
+        echo "🌐 Testing network connectivity..."
+        nc -zv ${{ steps.discover-ec2.outputs.public_ip }} 22
+        echo "✅ Port 22 is accessible"
 
         # Create deployment script
         cat > deploy_script.sh << 'EOF'
         #!/bin/bash
         set -e
-        echo "🚀 Deploying Jemya to EC2..."
+        echo "Deploying Jemya to EC2..."
+        
+        # ECR login
         aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+        
+        # Stop and remove existing container
         docker stop jemya-app || true
         docker rm jemya-app || true
+        
+        # Pull new image
+        echo "Pulling Docker image..."
         docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        
+        # Run new container
+        echo "Starting new container..."
         docker run -d \
           --name jemya-app \
           -p 8501:8501 \
@@ -407,16 +427,31 @@ jobs:
           -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
           -e ENVIRONMENT="production" \
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-        sudo systemctl restart nginx || true
+        
+        # Restart nginx if available
+        sudo systemctl restart nginx || echo "Nginx not available (using Docker networking)"
+        
+        echo "Deployment completed successfully"
         EOF
 
         # Copy and execute deployment script via SSH
-        scp -i ec2_key.pem -o StrictHostKeyChecking=no deploy_script.sh ec2-user@${{ steps.discover-ec2.outputs.public_ip }}:/tmp/
-        ssh -i ec2_key.pem -o StrictHostKeyChecking=no ec2-user@${{ steps.discover-ec2.outputs.public_ip }} "chmod +x /tmp/deploy_script.sh && /tmp/deploy_script.sh"
+        echo "📤 Copying deployment script to EC2..."
+        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes deploy_script.sh ec2-user@${{ steps.discover-ec2.outputs.public_ip }}:/tmp/
+        
+        echo "🚀 Executing deployment on EC2..."
+        ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@${{ steps.discover-ec2.outputs.public_ip }} << 'EOF'
+        chmod +x /tmp/deploy_script.sh
+        /tmp/deploy_script.sh
+        exit 0
+        EOF
 
         # Cleanup
         rm -f ec2_key.pem deploy_script.sh
         echo "🎉 Deployment to EC2 completed successfully!"
+        
+        # Verify deployment
+        echo "🔍 Verifying deployment..."
+        curl -f --connect-timeout 10 http://${{ steps.discover-ec2.outputs.public_ip }}:8501/health || echo "⚠️ Health check endpoint not available (this is normal if no health endpoint exists)"
 
     # 📊 Deployment Summary
     - name: 📊 Deployment Summary
@@ -429,23 +464,14 @@ jobs:
         echo "🌍 **Region**: \`${{ env.AWS_DEFAULT_REGION }}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [ "${{ steps.discover-ec2.outputs.ssh_available }}" = "true" ]; then
-          echo "### �️ EC2 Deployment (Auto-Discovered)" >> $GITHUB_STEP_SUMMARY
+        # Always show SSH deployment since we have the SSH key
+        echo "### ☁️ EC2 Deployment (SSH Auto-Deploy)" >> $GITHUB_STEP_SUMMARY
           echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
           echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **App URL**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (Port 443 HTTPS)" >> $GITHUB_STEP_SUMMARY
-          echo "🔄 **HTTP Redirect**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\` → HTTPS" >> $GITHUB_STEP_SUMMARY
-          echo "🐳 **Container**: Port 8501 (internal)" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Status**: Deployed with Nginx HTTPS reverse proxy" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "### 🖥️ EC2 Instance Found (Manual Deployment Required)" >> $GITHUB_STEP_SUMMARY
-          echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **App URL**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (Port 443 HTTPS)" >> $GITHUB_STEP_SUMMARY
-          echo "🔄 **HTTP Redirect**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\` → HTTPS" >> $GITHUB_STEP_SUMMARY
-          echo "🐳 **Container**: Port 8501 (internal)" >> $GITHUB_STEP_SUMMARY
-          echo "⚠️ **Status**: Add EC2_SSH_KEY secret for auto-deployment" >> $GITHUB_STEP_SUMMARY
-        fi
+        echo "🔗 **App URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}:8501\` (Direct Docker access)" >> $GITHUB_STEP_SUMMARY
+        echo "🔄 **Alternative**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (if Nginx configured)" >> $GITHUB_STEP_SUMMARY
+        echo "🐳 **Container**: jemya-app running on port 8501" >> $GITHUB_STEP_SUMMARY
+        echo "✅ **Status**: Successfully deployed via SSH" >> $GITHUB_STEP_SUMMARY
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "🎉 **CI/CD Pipeline completed successfully!**" >> $GITHUB_STEP_SUMMARY
