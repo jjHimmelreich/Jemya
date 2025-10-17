@@ -7,7 +7,6 @@ This directory contains scripts and configurations for setting up and managing J
 ### Infrastructure Setup
 - `setup-aws-infrastructure.sh` - Creates AWS resources (ECR, IAM roles, etc.)
 - `setup-ec2-instance.sh` - Configures EC2 instance with all required software
-- `deploy-via-session-manager.sh` - Deploys application using AWS Session Manager
 
 ### Configuration Files
 - `aws-deployment-policy.json` - IAM policy for GitHub Actions deployment user
@@ -36,22 +35,11 @@ aws configure
 
 This creates:
 - ✅ ECR Repository for Docker images
-- ✅ IAM Role for EC2 instance (Session Manager access)
+- ✅ IAM Role for EC2 instance
 - ✅ IAM Instance Profile
 - ✅ Custom IAM policies for ECR access
 
 ### 3. Configure EC2 Instance
-
-#### Option A: Use Session Manager (Recommended)
-```bash
-# Run setup on existing EC2 instance
-aws ssm send-command \
-    --instance-ids i-01a86512741d7221f \
-    --document-name "AWS-RunShellScript" \
-    --parameters 'commands=["curl -fsSL https://raw.githubusercontent.com/jjHimmelreich/Jemya/main/aws/setup-ec2-instance.sh | bash"]'
-```
-
-#### Option B: SSH Access
 ```bash
 # Copy and run setup script
 scp -i ~/.ssh/jemya-key-20251016.pem aws/setup-ec2-instance.sh ec2-user@YOUR_EC2_IP:/tmp/
@@ -60,12 +48,7 @@ ssh -i ~/.ssh/jemya-key-20251016.pem ec2-user@YOUR_EC2_IP "chmod +x /tmp/setup-e
 
 ### 4. Deploy Application
 
-The CI/CD pipeline will automatically deploy when you push to main branch. For manual deployment:
-
-```bash
-# Deploy specific version
-./aws/deploy-via-session-manager.sh i-01a86512741d7221f "431969329260.dkr.ecr.eu-west-1.amazonaws.com/jemya:latest"
-```
+The CI/CD pipeline will automatically deploy when you push to main branch and add the EC2_SSH_KEY secret.
 
 ## 🔧 Configuration Details
 
@@ -76,7 +59,6 @@ The `setup-ec2-instance.sh` script configures:
 - **Docker** - Container runtime with proper configuration
 - **AWS CLI v2** - Latest version for ECR access
 - **Nginx** - Reverse proxy with SSL support
-- **SSM Agent** - For Session Manager access
 - **Security** - Firewall rules and system hardening
 - **Monitoring** - Health check and system info scripts
 - **Log Management** - Proper log rotation and storage
@@ -107,7 +89,7 @@ After setup, these scripts are available on the EC2 instance:
 ### IAM Security
 - **Least Privilege** - Minimal required permissions
 - **Resource-Specific** - Access limited to tagged resources
-- **Session Manager** - No SSH keys required in production
+- **SSH Security** - Private key-based authentication
 
 ### Network Security
 - **Security Groups** - Controlled ingress/egress rules
@@ -139,7 +121,7 @@ docker logs jemya-app --tail 50
 /opt/jemya/scripts/system-info.sh
 
 # Check services
-systemctl status docker nginx amazon-ssm-agent
+systemctl status docker nginx
 
 # Resource usage
 htop
@@ -148,14 +130,13 @@ df -h
 
 ### Common Issues
 
-#### Session Manager Not Working
+#### SSH Connection Issues
 ```bash
-# Check SSM agent
-sudo systemctl status amazon-ssm-agent
-sudo systemctl restart amazon-ssm-agent
+# Check security group allows SSH (port 22)
+aws ec2 describe-security-groups --group-ids <your-sg-id> --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`]'
 
-# Verify IAM role attached to instance
-aws ec2 describe-instances --instance-ids i-01a86512741d7221f --query 'Reservations[0].Instances[0].IamInstanceProfile'
+# Test SSH connection
+ssh -i ~/.ssh/jemya-key-20251016.pem -o ConnectTimeout=10 ec2-user@<your-ec2-ip> "echo 'Connection successful'"
 ```
 
 #### Application Not Accessible
@@ -186,6 +167,7 @@ aws sts get-caller-identity
 Required secrets in GitHub Actions:
 - `AWS_ACCESS_KEY_ID` - GitHub Actions IAM user access key
 - `AWS_SECRET_ACCESS_KEY` - GitHub Actions IAM user secret key
+- `EC2_SSH_KEY` - Private SSH key content (jemya-key-20251016.pem)
 - `SPOTIFY_CLIENT_ID` - Spotify API credentials
 - `SPOTIFY_CLIENT_SECRET` - Spotify API credentials
 - `SPOTIFY_REDIRECT_URI` - Spotify OAuth redirect
@@ -198,8 +180,12 @@ Required secrets in GitHub Actions:
 # Update IAM policies
 ./aws/update-iam-policy.sh
 
-# Update EC2 configuration
-aws ssm send-command --instance-ids i-01a86512741d7221f --document-name "AWS-RunShellScript" --parameters 'commands=["curl -fsSL https://raw.githubusercontent.com/jjHimmelreich/Jemya/main/aws/setup-ec2-instance.sh | bash"]'
+### Update EC2 configuration
+```bash
+# Copy and run setup script via SSH
+scp -i ~/.ssh/jemya-key-20251016.pem aws/setup-ec2-instance.sh ec2-user@<your-ec2-ip>:/tmp/
+ssh -i ~/.ssh/jemya-key-20251016.pem ec2-user@<your-ec2-ip> "chmod +x /tmp/setup-ec2-instance.sh && /tmp/setup-ec2-instance.sh"
+```
 ```
 
 ### Backup & Recovery

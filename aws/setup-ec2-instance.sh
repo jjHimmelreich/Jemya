@@ -275,11 +275,7 @@ sudo tee /etc/docker/daemon.json << 'DOCKER_EOF'
 }
 DOCKER_EOF
 
-# Restart SSM Agent to ensure Session Manager works
-log "🔄 Configuring SSM Agent..."
-sudo systemctl restart amazon-ssm-agent
-sudo systemctl enable amazon-ssm-agent
-success "SSM Agent configured"
+# Note: SSM Agent is pre-installed on Amazon Linux 2 and enabled by default
 
 # Start and enable services
 log "🚀 Starting services..."
@@ -521,12 +517,8 @@ echo "- Private IP: $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4
 echo "- AZ: $(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone 2>/dev/null || echo 'Not available')"
 echo ""
 
-echo "📡 SSM Agent:"
-echo "- Status: $(systemctl is-active amazon-ssm-agent 2>/dev/null || echo 'Not running')"
-echo ""
-
-echo "🔧 Services Status:"
-for service in docker nginx amazon-ssm-agent; do
+echo " Services Status:"
+for service in docker nginx; do
     status=$(systemctl is-active $service 2>/dev/null || echo "inactive")
     enabled=$(systemctl is-enabled $service 2>/dev/null || echo "disabled")
     echo "- $service: $status ($enabled)"
@@ -552,7 +544,6 @@ echo "✅ Nginx installed and configured"
 echo "✅ SSL certificates created"
 echo "✅ SSM Agent configured"
 echo "✅ Application directories created"
-echo "✅ Log rotation configured"
 echo "✅ Monitoring scripts created"
 echo "✅ Helper scripts created"
 echo ""
@@ -562,7 +553,6 @@ echo ""
 echo "📊 System Status:"
 sudo systemctl status docker --no-pager -l | head -3
 sudo systemctl status nginx --no-pager -l | head -3
-sudo systemctl status amazon-ssm-agent --no-pager -l | head -3
 echo ""
 
 echo "🛠️ Available Scripts:"
