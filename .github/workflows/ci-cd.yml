@@ -1,4 +1,4 @@
-name: 🚀 CI/CD Pipeline (Optimized - Build Once, Use Everywhere)
+name: � CI/CD Pipeline
 
 on:
   push:
@@ -347,17 +347,27 @@ jobs:
         docker logs test-container --tail 20
         docker stop test-container
 
-  # 🚀 Deploy to AWS (using the built image)
-  deploy:
-    name: 🚀 Deploy to AWS
+  # 🚀 Push to ECR (for deployment)
+  push-to-ecr:
+    name: 🚀 Push to ECR
     runs-on: ubuntu-latest
-    needs: [build-image, test]
+    needs: [build-image, security-scans, docker-security, test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production
     
     steps:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
+
+    - name: ⚙️ Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    - name: 🔐 Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
 
     - name: 📥 Download Docker image
       uses: actions/download-artifact@v4
@@ -365,30 +375,14 @@ jobs:
         name: docker-image
         path: /tmp
 
-    - name: 🐳 Load Docker image
-      run: |
-        docker load --input /tmp/image.tar
-        docker image ls -a
-
-    - name: ⚙️ Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
-
-    # 🏷️ Login to Amazon ECR
-    - name: 🏷️ Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-
-    # �️ Tag and push image to Amazon ECR (using pre-built image)
-    - name: �️ Tag and push Docker image
+    - name: 🐳 Load and push Docker image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
+        # Load the image
+        docker load --input /tmp/image.tar
+        
         # Get the locally built image name
         LOCAL_IMAGE=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep -v REPOSITORY | head -1)
         echo "📦 Local image: $LOCAL_IMAGE"
@@ -402,393 +396,74 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
         echo "✅ Pushed to ECR: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        
+        # Set output for deployment workflow
+        echo "image-uri=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-    # � Auto-discover EC2 instance for deployment
-    - name: � Discover EC2 Instance
-      id: discover-ec2
-      run: |
-        echo "🔍 Auto-discovering Jemya EC2 instance..."
-        
-        # Find running Jemya instance by tag
-        INSTANCE_INFO=$(aws ec2 describe-instances \
-          --filters "Name=tag:Name,Values=jemya-instance" \
-                    "Name=instance-state-name,Values=running" \
-          --query 'Reservations[0].Instances[0].[InstanceId,PublicIpAddress,PrivateIpAddress]' \
-          --output text \
-          --region ${{ env.AWS_DEFAULT_REGION }})
-        
-        if [ "$INSTANCE_INFO" = "None	None	None" ] || [ -z "$INSTANCE_INFO" ]; then
-          echo "❌ No running Jemya EC2 instance found!"
-          echo "💡 Make sure your EC2 instance is running and tagged with Name=jemya-instance"
-          exit 1
-        fi
-        
-        # Parse instance info with better error handling
-        INSTANCE_ID=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f1)
-        PUBLIC_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f2)
-        PRIVATE_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f3)
-        
-        echo "✅ Found Jemya EC2 instance:"
-        echo "   Instance ID: '$INSTANCE_ID'"
-        echo "   Public IP: '$PUBLIC_IP'"
-        echo "   Private IP: '$PRIVATE_IP'"
-        
-        # Validate parsed values
-        if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-          echo "❌ Invalid Instance ID: '$INSTANCE_ID'"
-          exit 1
-        fi
-        
-        if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "None" ]; then
-          echo "❌ Invalid Public IP: '$PUBLIC_IP'"
-          exit 1
-        fi
-        
-        # Set outputs for next steps
-        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-        echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
-        echo "private_ip=$PRIVATE_IP" >> $GITHUB_OUTPUT
-        
-
-        # Check if we have SSH key for deployment
-        if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-          echo "❌ EC2_SSH_KEY secret not found!"
-          echo "💡 Please add EC2_SSH_KEY to GitHub secrets to enable deployment"
-          exit 1
-        else
-          echo "✅ SSH key available for deployment"
-        fi
-
-
-    # 🚀 Deploy to Auto-Discovered EC2 Instance via SSH
-    - name: 🚀 Deploy to EC2 Instance
-      run: |
-        # Get and validate variables
-        INSTANCE_ID="${{ steps.discover-ec2.outputs.instance_id }}"
-        PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
-        
-        echo "🚀 Deploying to EC2 instance:"
-        echo "   Instance ID: '$INSTANCE_ID'"
-        echo "   Public IP: '$PUBLIC_IP'"
-        
-        # Additional validation
-        if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "None" ]; then
-          echo "❌ Invalid PUBLIC_IP: '$PUBLIC_IP'"
-          exit 1
-        fi
-
-        # Write and validate SSH key
-        echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
-        chmod 600 ec2_key.pem
-        
-        # Validate SSH key format
-        ssh-keygen -y -f ec2_key.pem > /dev/null
-        echo "✅ SSH key is valid"
-        
-        # Test network connectivity
-        echo "🌐 Testing network connectivity to $PUBLIC_IP:22..."
-        nc -zv "$PUBLIC_IP" 22
-        echo "✅ Port 22 is accessible"
-
-        # Create deployment script
-        cat > deploy_script.sh << 'EOF'
-        #!/bin/bash
-        set -e  # Exit immediately on any error
-        echo "Deploying Jemya to EC2..."
-        
-        # ECR login with error checking
-        echo "🔐 Logging into ECR..."
-        if ! aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}; then
-          echo "❌ ECR login failed"
-          exit 1
-        fi
-        echo "✅ ECR login successful"
-        
-        # Stop and remove existing container
-        echo "🛑 Stopping existing container..."
-        docker stop jemya-app || true
-        docker rm jemya-app || true
-        
-        # Pull new image with error checking
-        echo "📥 Pulling Docker image..."
-        if ! docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}; then
-          echo "❌ Failed to pull Docker image"
-          exit 1
-        fi
-        echo "✅ Docker image pulled successfully"
-        
-        # Run new container (only accessible via nginx)
-        echo "🚀 Starting new container..."
-        CONTAINER_ID=$(docker run -d \
-          --name jemya-app \
-          -p 127.0.0.1:8501:8501 \
-          --restart unless-stopped \
-          -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
-          -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
-          -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
-          -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-          -e ENVIRONMENT="production" \
-          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }})
-        
-        if [ -z "$CONTAINER_ID" ]; then
-          echo "❌ Failed to start container"
-          exit 1
-        fi
-        
-        # Wait for container to be healthy
-        echo "⏳ Waiting for container to start..."
-        sleep 10
-        
-        if ! docker ps | grep jemya-app > /dev/null; then
-          echo "❌ Container failed to start or crashed"
-          echo "📋 Container logs:"
-          docker logs jemya-app --tail 20 || true
-          exit 1
-        fi
-        echo "✅ Container started successfully"
-        
-        # Setup nginx if not already configured
-        if ! command -v nginx > /dev/null; then
-            echo "📦 Installing nginx..."
-            sudo yum update -y
-            sudo amazon-linux-extras install nginx1 -y
-        fi
-        
-        # Configure nginx if not already configured
-        if [ ! -f /etc/nginx/conf.d/jemya.conf ]; then
-            echo "🔧 Configuring nginx for Jemya HTTPS..."
-            
-            # Create SSL directory and generate self-signed certificate
-            sudo mkdir -p /etc/nginx/ssl
-            if [ ! -f /etc/nginx/ssl/jemya.crt ]; then
-                echo "🔐 Generating self-signed SSL certificate..."
-                # Get public IP dynamically without hardcoded metadata service IP
-                PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "localhost")
-                if ! sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-                    -keyout /etc/nginx/ssl/jemya.key \
-                    -out /etc/nginx/ssl/jemya.crt \
-                    -subj "/C=US/ST=State/L=City/O=Organization/CN=${PUBLIC_IP}"; then
-                  echo "❌ Failed to generate SSL certificate"
-                  exit 1
-                fi
-                sudo chmod 600 /etc/nginx/ssl/jemya.key
-                sudo chmod 644 /etc/nginx/ssl/jemya.crt
-                echo "✅ SSL certificate generated"
-            fi
-            
-            # Copy the nginx configuration from repository
-            if ! sudo cp /tmp/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf; then
-              echo "❌ Failed to copy nginx configuration"
-              exit 1
-            fi
-            echo "✅ Nginx configuration copied"
-            
-            # Remove default nginx config if it exists
-            sudo rm -f /etc/nginx/conf.d/default.conf
-            sudo rm -f /etc/nginx/sites-enabled/default
-            
-            # Test nginx configuration
-            if ! sudo nginx -t; then
-              echo "❌ Nginx configuration test failed"
-              exit 1
-            fi
-            echo "✅ Nginx configuration test passed"
-        fi
-        
-        # Enable and start nginx
-        echo "🔧 Starting nginx services..."
-        if ! sudo systemctl enable nginx; then
-          echo "❌ Failed to enable nginx"
-          exit 1
-        fi
-        
-        if ! sudo systemctl start nginx; then
-          echo "❌ Failed to start nginx"
-          exit 1
-        fi
-        
-        if ! sudo systemctl reload nginx; then
-          echo "❌ Failed to reload nginx"
-          exit 1
-        fi
-        echo "✅ Nginx services started successfully"
-        
-        # Final verification
-        echo "🔍 Final deployment verification..."
-        sleep 5
-        
-        # Check if container is still running
-        if ! docker ps | grep jemya-app > /dev/null; then
-          echo "❌ Container stopped running after deployment"
-          docker logs jemya-app --tail 10 || true
-          exit 1
-        fi
-        
-        # Check if nginx is running
-        if ! sudo systemctl is-active nginx > /dev/null; then
-          echo "❌ Nginx is not running"
-          sudo systemctl status nginx || true
-          exit 1
-        fi
-        
-        echo "✅ Deployment completed successfully"
-        # Get public IP dynamically without hardcoded metadata service IP
-        PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "your-instance-ip")
-        echo "🌐 Application accessible at: https://${PUBLIC_IP}"
-        EOF
-
-        # Copy and execute deployment script via SSH
-        echo "📤 Copying deployment script and nginx config to EC2..."
-        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes deploy_script.sh ec2-user@"$PUBLIC_IP":/tmp/
-        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes aws/nginx-jemya.conf ec2-user@"$PUBLIC_IP":/tmp/
-        
-        echo "🚀 Executing deployment on EC2..."
-        ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@"$PUBLIC_IP" << 'EOF'
-        set -e  # Exit on any error
-        chmod +x /tmp/deploy_script.sh
-        
-        echo "📋 Starting deployment script..."
-        if /tmp/deploy_script.sh; then
-          echo "✅ Deployment script completed successfully"
-          exit 0
-        else
-          echo "❌ Deployment script failed"
-          exit 1
-        fi
-        EOF
-        
-        # Check SSH command exit code
-        SSH_EXIT_CODE=$?
-        if [ $SSH_EXIT_CODE -ne 0 ]; then
-          echo "❌ SSH deployment failed with exit code: $SSH_EXIT_CODE"
-          rm -f ec2_key.pem deploy_script.sh
-          exit 1
-        fi
-
-        # Cleanup
-        rm -f ec2_key.pem deploy_script.sh
-        echo "🎉 Deployment to EC2 completed successfully!"
-        
-        # Verify deployment - CRITICAL CHECKS
-        echo "🔍 Verifying deployment..."
-        VERIFICATION_FAILED=false
-        
-        # Test HTTPS (port 443) - Primary access method
-        echo "🔍 Testing HTTPS access..."
-        if curl -f -k --connect-timeout 30 --max-time 60 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
-          echo "✅ HTTPS access is working (port 443) - Primary method"
-        else
-          echo "❌ HTTPS not responding on port 443 - DEPLOYMENT FAILED"
-          VERIFICATION_FAILED=true
-        fi
-        
-        # Test HTTP redirect (port 80) - Should redirect to HTTPS
-        echo "🔍 Testing HTTP redirect..."
-        if curl -f --connect-timeout 30 --max-time 60 "http://$PUBLIC_IP/" > /dev/null 2>&1; then
-          echo "✅ HTTP redirect is working (port 80 → 443)"
-        else
-          echo "❌ HTTP redirect not working on port 80 - CHECK NGINX CONFIG"
-          VERIFICATION_FAILED=true
-        fi
-        
-        # Test container health
-        echo "🔍 Testing container health..."
-        # Create temporary SSH key for verification
-        echo "${{ secrets.EC2_SSH_KEY }}" > verify_key.pem
-        chmod 600 verify_key.pem
-        CONTAINER_STATUS=$(ssh -i verify_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ec2-user@"$PUBLIC_IP" "docker ps --filter name=jemya-app --format '{{.Status}}'" 2>/dev/null || echo "FAILED")
-        rm -f verify_key.pem
-        
-        if echo "$CONTAINER_STATUS" | grep -q "Up"; then
-          echo "✅ Container is running: $CONTAINER_STATUS"
-        else
-          echo "❌ Container is not running properly: $CONTAINER_STATUS"
-          VERIFICATION_FAILED=true
-        fi
-        
-        # Fail the workflow if any verification failed
-        if [ "$VERIFICATION_FAILED" = true ]; then
-          echo ""
-          echo "❌ DEPLOYMENT VERIFICATION FAILED!"
-          echo "🔍 Check the following:"
-          echo "  • EC2 instance logs: sudo journalctl -u docker"
-          echo "  • Container logs: docker logs jemya-app"
-          echo "  • Nginx logs: sudo journalctl -u nginx"
-          echo "  • Security groups: ports 80, 443 open"
-          echo ""
-          exit 1
-        fi
-        
-        echo ""
-        echo "🎉 All deployment verifications passed!"
-
-    # 📊 Deployment Summary
-    - name: 📊 Deployment Summary
-      run: |
-        echo "## 🚀 Optimized Deployment Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### ⚡ Performance Improvements" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Single Build**: Docker image built once and reused across all jobs" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Faster Pipeline**: Eliminated duplicate builds (saves 5-10 minutes)" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Consistent**: Same image used for security scans, tests, and deployment" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### ✅ Docker Image Built & Pushed" >> $GITHUB_STEP_SUMMARY
-        echo "� **Image URI**: \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "🏷️ **Tag**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "🌍 **Region**: \`${{ env.AWS_DEFAULT_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        # Always show SSH deployment since we have the SSH key
-        echo "### ☁️ EC2 Deployment (SSH Auto-Deploy)" >> $GITHUB_STEP_SUMMARY
-        echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 **App URL (HTTPS)**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` 🔒 (Primary - via Nginx SSL)" >> $GITHUB_STEP_SUMMARY
-        echo "🔄 **App URL (HTTP)**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\` (Redirects to HTTPS)" >> $GITHUB_STEP_SUMMARY
-        echo "🔒 **SSL**: Self-signed certificate (consider replacing with proper cert)" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Status**: Successfully deployed via SSH" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "🎉 **CI/CD Pipeline completed successfully!**" >> $GITHUB_STEP_SUMMARY
-
-  # 📋 Security Summary
-  security-summary:
-    name: 📋 Security Summary
+  # 📊 CI Summary  
+  ci-summary:
+    name: 📊 CI Summary
     runs-on: ubuntu-latest
-    needs: [security-scans, docker-security]
+    needs: [build-image, security-scans, docker-security, test, push-to-ecr]
     if: always()
     
     steps:
-    - name: 📥 Download security artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: security-scan-results
-      continue-on-error: true
-
-    - name: 📋 Security scan summary
+    - name: 📊 Generate CI Pipeline Summary
       run: |
-        echo "## 🛡️ Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "## 🔄 CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔍 Static Analysis (CodeQL)" >> $GITHUB_STEP_SUMMARY
-        echo "- GitHub CodeQL analysis completed" >> $GITHUB_STEP_SUMMARY
-        echo "- Results available in Security tab" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🐍 Python Security (Bandit)" >> $GITHUB_STEP_SUMMARY
-        if [ -f bandit-report.json ]; then
-          echo "- Bandit scan completed" >> $GITHUB_STEP_SUMMARY
+        
+        # Determine overall status
+        if [ "${{ needs.build-image.result }}" = "success" ] && \
+           [ "${{ needs.security-scans.result }}" = "success" ] && \
+           [ "${{ needs.docker-security.result }}" = "success" ] && \
+           [ "${{ needs.test.result }}" = "success" ]; then
+          
+          echo "### ✅ CI Pipeline Passed" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 **All checks passed successfully!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # ECR push status (only on main branch)
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
+            if [ "${{ needs.push-to-ecr.result }}" = "success" ]; then
+              echo "### 📦 Docker Image Published" >> $GITHUB_STEP_SUMMARY
+              echo "✅ **Image successfully pushed to ECR**" >> $GITHUB_STEP_SUMMARY
+              echo "🏷️ **Image Tag**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "🌍 **ECR Region**: \`${{ env.AWS_DEFAULT_REGION }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 🚀 Ready for Deployment" >> $GITHUB_STEP_SUMMARY
+              echo "🎯 **Automatic deployment** will trigger shortly" >> $GITHUB_STEP_SUMMARY
+              echo "📋 **Manual deployment**: Use the 'Deploy to Production' workflow" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ❌ ECR Push Failed" >> $GITHUB_STEP_SUMMARY
+              echo "❌ **Failed to push Docker image to ECR**" >> $GITHUB_STEP_SUMMARY
+              echo "🔍 **Check the ECR push logs above for details**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### 📦 Docker Image Ready" >> $GITHUB_STEP_SUMMARY
+            echo "🔨 **Docker image built and tested successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "📝 **ECR push skipped** (only runs on main branch pushes)" >> $GITHUB_STEP_SUMMARY
+          fi
         else
-          echo "- Bandit scan: ⚠️ Results not available" >> $GITHUB_STEP_SUMMARY
+          echo "### ❌ CI Pipeline Failed" >> $GITHUB_STEP_SUMMARY
+          echo "❌ **Some checks failed - deployment blocked**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Failed Jobs:" >> $GITHUB_STEP_SUMMARY
+          [ "${{ needs.build-image.result }}" != "success" ] && echo "- ❌ Build Image: ${{ needs.build-image.result }}" >> $GITHUB_STEP_SUMMARY
+          [ "${{ needs.security-scans.result }}" != "success" ] && echo "- ❌ Security Scans: ${{ needs.security-scans.result }}" >> $GITHUB_STEP_SUMMARY
+          [ "${{ needs.docker-security.result }}" != "success" ] && echo "- ❌ Docker Security: ${{ needs.docker-security.result }}" >> $GITHUB_STEP_SUMMARY
+          [ "${{ needs.test.result }}" != "success" ] && echo "- ❌ Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          [ "${{ needs.push-to-ecr.result }}" != "success" ] && [ "${{ needs.push-to-ecr.result }}" != "skipped" ] && echo "- ❌ ECR Push: ${{ needs.push-to-ecr.result }}" >> $GITHUB_STEP_SUMMARY
         fi
+        
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📦 Dependency Security" >> $GITHUB_STEP_SUMMARY
-        if [ -f pip-audit-report.json ]; then
-          echo "- pip-audit vulnerability scan completed (primary)" >> $GITHUB_STEP_SUMMARY
-        fi
-        if [ -f safety-report.json ]; then
-          echo "- Additional dependency scan reports available" >> $GITHUB_STEP_SUMMARY
-        fi
+        echo "### 📋 Pipeline Details" >> $GITHUB_STEP_SUMMARY
+        echo "🏗️ **Build**: ${{ needs.build-image.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "🛡️ **Security Scans**: ${{ needs.security-scans.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "🐳 **Docker Security**: ${{ needs.docker-security.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "🧪 **Tests**: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "🚀 **ECR Push**: ${{ needs.push-to-ecr.result }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🐳 Container Security (Trivy)" >> $GITHUB_STEP_SUMMARY
-        echo "- Docker image vulnerability scan completed" >> $GITHUB_STEP_SUMMARY
-        echo "- Dockerfile security scan (Hadolint) completed" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "📊 **All security results are available in the Security tab**"
+        echo "📅 **Completed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "👤 **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "🌿 **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY

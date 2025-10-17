@@ -1,0 +1,527 @@
+name: 🚀 Deploy to Production
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+      force_deploy:
+        description: 'Force deploy even if tests failed'
+        required: false
+        default: false
+        type: boolean
+      image_tag:
+        description: 'Docker image tag to deploy (defaults to latest main branch)'
+        required: false
+        type: string
+
+  # Automatic trigger after CI passes
+  workflow_run:
+    workflows: ["🔄 CI/CD Pipeline"]
+    types:
+      - completed
+    branches: [main]
+
+env:
+  AWS_DEFAULT_REGION: eu-west-1
+  ECR_REPOSITORY: jemya
+
+jobs:
+  # Check if deployment should proceed
+  deployment-gate:
+    name: 🚪 Deployment Gate
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.gate.outputs.should_deploy }}
+      image_tag: ${{ steps.gate.outputs.image_tag }}
+      deploy_reason: ${{ steps.gate.outputs.deploy_reason }}
+    
+    steps:
+    - name: 🚪 Check deployment conditions
+      id: gate
+      run: |
+        SHOULD_DEPLOY="false"
+        DEPLOY_REASON=""
+        IMAGE_TAG=""
+        
+        # Manual trigger
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "📋 Manual deployment triggered"
+          SHOULD_DEPLOY="true"
+          DEPLOY_REASON="Manual deployment triggered by ${{ github.actor }}"
+          
+          # Use provided image tag or determine from branch
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            IMAGE_TAG="${{ inputs.image_tag }}"
+            echo "🏷️ Using specified image tag: $IMAGE_TAG"
+          else
+            IMAGE_TAG="${{ github.sha }}"
+            echo "🏷️ Using current commit as image tag: $IMAGE_TAG"
+          fi
+          
+          # Check force deploy flag
+          if [ "${{ inputs.force_deploy }}" = "true" ]; then
+            echo "⚠️ Force deploy enabled - bypassing all checks"
+            DEPLOY_REASON="$DEPLOY_REASON (FORCE DEPLOY - bypassed checks)"
+          fi
+        fi
+        
+        # Automatic trigger after CI
+        if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          echo "📋 Triggered by CI workflow completion"
+          
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            echo "✅ CI workflow passed - proceeding with deployment"
+            SHOULD_DEPLOY="true"
+            DEPLOY_REASON="Automatic deployment after successful CI"
+            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+          else
+            echo "❌ CI workflow failed - deployment cancelled"
+            DEPLOY_REASON="Deployment cancelled - CI workflow failed: ${{ github.event.workflow_run.conclusion }}"
+          fi
+        fi
+        
+        echo "should_deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "deploy_reason=$DEPLOY_REASON" >> $GITHUB_OUTPUT
+        
+        echo "🔍 Deployment Decision:"
+        echo "   Should Deploy: $SHOULD_DEPLOY"
+        echo "   Image Tag: $IMAGE_TAG"
+        echo "   Reason: $DEPLOY_REASON"
+
+  # Deploy to production environment
+  deploy:
+    name: 🚀 Deploy to ${{ inputs.environment || 'production' }}
+    runs-on: ubuntu-latest
+    needs: deployment-gate
+    if: needs.deployment-gate.outputs.should_deploy == 'true'
+    
+    environment:
+      name: ${{ inputs.environment || 'production' }}
+      url: https://${{ steps.discover-ec2.outputs.public_ip }}
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+
+    - name: ⚙️ Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    - name: 🔐 Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: 🔍 Verify Docker image exists
+      run: |
+        IMAGE_TAG="${{ needs.deployment-gate.outputs.image_tag }}"
+        IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+        
+        echo "🔍 Verifying image exists: $IMAGE_URI"
+        
+        # Check if image exists in ECR
+        if aws ecr describe-images \
+          --repository-name ${{ env.ECR_REPOSITORY }} \
+          --image-ids imageTag=$IMAGE_TAG \
+          --region ${{ env.AWS_DEFAULT_REGION }} > /dev/null 2>&1; then
+          echo "✅ Docker image found in ECR"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+        else
+          echo "❌ Docker image not found in ECR: $IMAGE_URI"
+          echo "💡 Available images:"
+          aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} --query 'imageDetails[*].imageTags' --output table || true
+          exit 1
+        fi
+
+    - name: 🔍 Discover EC2 Instance
+      id: discover-ec2
+      run: |
+        echo "🔍 Auto-discovering Jemya EC2 instance..."
+        
+        # Find running Jemya instance by tag
+        INSTANCE_INFO=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=jemya-instance" \
+                    "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].[InstanceId,PublicIpAddress,PrivateIpAddress]' \
+          --output text \
+          --region ${{ env.AWS_DEFAULT_REGION }})
+        
+        if [ "$INSTANCE_INFO" = "None	None	None" ] || [ -z "$INSTANCE_INFO" ]; then
+          echo "❌ No running Jemya EC2 instance found!"
+          echo "💡 Make sure your EC2 instance is running and tagged with Name=jemya-instance"
+          exit 1
+        fi
+        
+        # Parse instance info with better error handling
+        INSTANCE_ID=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f1)
+        PUBLIC_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f2)
+        PRIVATE_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f3)
+        
+        echo "✅ Found Jemya EC2 instance:"
+        echo "   Instance ID: '$INSTANCE_ID'"
+        echo "   Public IP: '$PUBLIC_IP'"
+        echo "   Private IP: '$PRIVATE_IP'"
+        
+        # Validate parsed values
+        if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+          echo "❌ Invalid Instance ID: '$INSTANCE_ID'"
+          exit 1
+        fi
+        
+        if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "None" ]; then
+          echo "❌ Invalid Public IP: '$PUBLIC_IP'"
+          exit 1
+        fi
+        
+        # Set outputs for next steps
+        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+        echo "private_ip=$PRIVATE_IP" >> $GITHUB_OUTPUT
+
+    - name: 🔑 Validate SSH Access
+      run: |
+        PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
+        
+        # Check if we have SSH key for deployment
+        if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+          echo "❌ EC2_SSH_KEY secret not found!"
+          echo "💡 Please add EC2_SSH_KEY to GitHub secrets to enable deployment"
+          exit 1
+        else
+          echo "✅ SSH key available for deployment"
+        fi
+        
+        # Write and validate SSH key
+        echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
+        chmod 600 ec2_key.pem
+        
+        # Validate SSH key format
+        if ! ssh-keygen -y -f ec2_key.pem > /dev/null 2>&1; then
+          echo "❌ Invalid SSH key format"
+          rm -f ec2_key.pem
+          exit 1
+        fi
+        echo "✅ SSH key is valid"
+        
+        # Test network connectivity
+        echo "🌐 Testing network connectivity to $PUBLIC_IP:22..."
+        if ! nc -zv "$PUBLIC_IP" 22; then
+          echo "❌ Cannot connect to $PUBLIC_IP:22"
+          echo "💡 Check security groups and network ACLs"
+          rm -f ec2_key.pem
+          exit 1
+        fi
+        echo "✅ Port 22 is accessible"
+        
+        # Cleanup temporary file
+        rm -f ec2_key.pem
+
+    - name: 🚀 Execute Deployment
+      run: |
+        # Get variables
+        INSTANCE_ID="${{ steps.discover-ec2.outputs.instance_id }}"
+        PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
+        IMAGE_TAG="${{ needs.deployment-gate.outputs.image_tag }}"
+        
+        echo "🚀 Deploying to EC2 instance:"
+        echo "   Instance ID: '$INSTANCE_ID'"
+        echo "   Public IP: '$PUBLIC_IP'"
+        echo "   Docker Image: '${{ env.IMAGE_URI }}'"
+        echo "   Reason: ${{ needs.deployment-gate.outputs.deploy_reason }}"
+
+        # Write SSH key
+        echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
+        chmod 600 ec2_key.pem
+
+        # Create deployment script
+        cat > deploy_script.sh << 'EOF'
+        #!/bin/bash
+        set -e  # Exit immediately on any error
+        echo "Deploying Jemya to EC2..."
+        
+        # ECR login with error checking
+        echo "🔐 Logging into ECR..."
+        if ! aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}; then
+          echo "❌ ECR login failed"
+          exit 1
+        fi
+        echo "✅ ECR login successful"
+        
+        # Stop and remove existing container
+        echo "🛑 Stopping existing container..."
+        docker stop jemya-app || true
+        docker rm jemya-app || true
+        
+        # Pull new image with error checking
+        echo "📥 Pulling Docker image..."
+        if ! docker pull ${{ env.IMAGE_URI }}; then
+          echo "❌ Failed to pull Docker image"
+          exit 1
+        fi
+        echo "✅ Docker image pulled successfully"
+        
+        # Run new container (only accessible via nginx)
+        echo "🚀 Starting new container..."
+        CONTAINER_ID=$(docker run -d \
+          --name jemya-app \
+          -p 127.0.0.1:8501:8501 \
+          --restart unless-stopped \
+          -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
+          -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
+          -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
+          -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+          -e ENVIRONMENT="production" \
+          ${{ env.IMAGE_URI }})
+        
+        if [ -z "$CONTAINER_ID" ]; then
+          echo "❌ Failed to start container"
+          exit 1
+        fi
+        
+        # Wait for container to be healthy
+        echo "⏳ Waiting for container to start..."
+        sleep 10
+        
+        if ! docker ps | grep jemya-app > /dev/null; then
+          echo "❌ Container failed to start or crashed"
+          echo "📋 Container logs:"
+          docker logs jemya-app --tail 20 || true
+          exit 1
+        fi
+        echo "✅ Container started successfully"
+        
+        # Setup nginx if not already configured
+        if ! command -v nginx > /dev/null; then
+            echo "📦 Installing nginx..."
+            sudo yum update -y
+            sudo amazon-linux-extras install nginx1 -y
+        fi
+        
+        # Configure nginx if not already configured
+        if [ ! -f /etc/nginx/conf.d/jemya.conf ]; then
+            echo "🔧 Configuring nginx for Jemya HTTPS..."
+            
+            # Create SSL directory and generate self-signed certificate
+            sudo mkdir -p /etc/nginx/ssl
+            if [ ! -f /etc/nginx/ssl/jemya.crt ]; then
+                echo "🔐 Generating self-signed SSL certificate..."
+                # Get public IP dynamically without hardcoded metadata service IP
+                PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "localhost")
+                if ! sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                    -keyout /etc/nginx/ssl/jemya.key \
+                    -out /etc/nginx/ssl/jemya.crt \
+                    -subj "/C=US/ST=State/L=City/O=Organization/CN=${PUBLIC_IP}"; then
+                  echo "❌ Failed to generate SSL certificate"
+                  exit 1
+                fi
+                sudo chmod 600 /etc/nginx/ssl/jemya.key
+                sudo chmod 644 /etc/nginx/ssl/jemya.crt
+                echo "✅ SSL certificate generated"
+            fi
+            
+            # Copy the nginx configuration from repository
+            if ! sudo cp /tmp/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf; then
+              echo "❌ Failed to copy nginx configuration"
+              exit 1
+            fi
+            echo "✅ Nginx configuration copied"
+            
+            # Remove default nginx config if it exists
+            sudo rm -f /etc/nginx/conf.d/default.conf
+            sudo rm -f /etc/nginx/sites-enabled/default
+            
+            # Test nginx configuration
+            if ! sudo nginx -t; then
+              echo "❌ Nginx configuration test failed"
+              exit 1
+            fi
+            echo "✅ Nginx configuration test passed"
+        fi
+        
+        # Enable and start nginx
+        echo "🔧 Starting nginx services..."
+        if ! sudo systemctl enable nginx; then
+          echo "❌ Failed to enable nginx"
+          exit 1
+        fi
+        
+        if ! sudo systemctl start nginx; then
+          echo "❌ Failed to start nginx"
+          exit 1
+        fi
+        
+        if ! sudo systemctl reload nginx; then
+          echo "❌ Failed to reload nginx"
+          exit 1
+        fi
+        echo "✅ Nginx services started successfully"
+        
+        # Final verification
+        echo "🔍 Final deployment verification..."
+        sleep 5
+        
+        # Check if container is still running
+        if ! docker ps | grep jemya-app > /dev/null; then
+          echo "❌ Container stopped running after deployment"
+          docker logs jemya-app --tail 10 || true
+          exit 1
+        fi
+        
+        # Check if nginx is running
+        if ! sudo systemctl is-active nginx > /dev/null; then
+          echo "❌ Nginx is not running"
+          sudo systemctl status nginx || true
+          exit 1
+        fi
+        
+        echo "✅ Deployment completed successfully"
+        # Get public IP dynamically without hardcoded metadata service IP
+        PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "your-instance-ip")
+        echo "🌐 Application accessible at: https://${PUBLIC_IP}"
+        EOF
+
+        # Copy and execute deployment script via SSH
+        echo "📤 Copying deployment script and nginx config to EC2..."
+        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes deploy_script.sh ec2-user@"$PUBLIC_IP":/tmp/
+        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes aws/nginx-jemya.conf ec2-user@"$PUBLIC_IP":/tmp/
+        
+        echo "🚀 Executing deployment on EC2..."
+        ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@"$PUBLIC_IP" << 'EOF'
+        set -e  # Exit on any error
+        chmod +x /tmp/deploy_script.sh
+        
+        echo "📋 Starting deployment script..."
+        if /tmp/deploy_script.sh; then
+          echo "✅ Deployment script completed successfully"
+          exit 0
+        else
+          echo "❌ Deployment script failed"
+          exit 1
+        fi
+        EOF
+        
+        # Check SSH command exit code
+        SSH_EXIT_CODE=$?
+        if [ $SSH_EXIT_CODE -ne 0 ]; then
+          echo "❌ SSH deployment failed with exit code: $SSH_EXIT_CODE"
+          rm -f ec2_key.pem deploy_script.sh
+          exit 1
+        fi
+
+        # Cleanup
+        rm -f ec2_key.pem deploy_script.sh
+        echo "🎉 Deployment to EC2 completed successfully!"
+
+    - name: 🔍 Verify Deployment
+      run: |
+        PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
+        
+        echo "🔍 Verifying deployment..."
+        VERIFICATION_FAILED=false
+        
+        # Test HTTPS (port 443) - Primary access method
+        echo "🔍 Testing HTTPS access..."
+        if curl -f -k --connect-timeout 30 --max-time 60 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
+          echo "✅ HTTPS access is working (port 443) - Primary method"
+        else
+          echo "❌ HTTPS not responding on port 443 - DEPLOYMENT FAILED"
+          VERIFICATION_FAILED=true
+        fi
+        
+        # Test HTTP redirect (port 80) - Should redirect to HTTPS
+        echo "🔍 Testing HTTP redirect..."
+        if curl -f --connect-timeout 30 --max-time 60 "http://$PUBLIC_IP/" > /dev/null 2>&1; then
+          echo "✅ HTTP redirect is working (port 80 → 443)"
+        else
+          echo "❌ HTTP redirect not working on port 80 - CHECK NGINX CONFIG"
+          VERIFICATION_FAILED=true
+        fi
+        
+        # Test container health
+        echo "🔍 Testing container health..."
+        # Create temporary SSH key for verification
+        echo "${{ secrets.EC2_SSH_KEY }}" > verify_key.pem
+        chmod 600 verify_key.pem
+        CONTAINER_STATUS=$(ssh -i verify_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ec2-user@"$PUBLIC_IP" "docker ps --filter name=jemya-app --format '{{.Status}}'" 2>/dev/null || echo "FAILED")
+        rm -f verify_key.pem
+        
+        if echo "$CONTAINER_STATUS" | grep -q "Up"; then
+          echo "✅ Container is running: $CONTAINER_STATUS"
+        else
+          echo "❌ Container is not running properly: $CONTAINER_STATUS"
+          VERIFICATION_FAILED=true
+        fi
+        
+        # Fail the workflow if any verification failed
+        if [ "$VERIFICATION_FAILED" = true ]; then
+          echo ""
+          echo "❌ DEPLOYMENT VERIFICATION FAILED!"
+          echo "🔍 Check the following:"
+          echo "  • EC2 instance logs: sudo journalctl -u docker"
+          echo "  • Container logs: docker logs jemya-app"
+          echo "  • Nginx logs: sudo journalctl -u nginx"
+          echo "  • Security groups: ports 80, 443 open"
+          echo ""
+          exit 1
+        fi
+        
+        echo ""
+        echo "🎉 All deployment verifications passed!"
+
+    - name: 📊 Deployment Summary
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ Deployment Completed Successfully" >> $GITHUB_STEP_SUMMARY
+        echo "🎯 **Environment**: \`${{ inputs.environment || 'production' }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "🏷️ **Image Tag**: \`${{ needs.deployment-gate.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "📝 **Reason**: ${{ needs.deployment-gate.outputs.deploy_reason }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🌐 Application URLs" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 **HTTPS (Primary)**: [https://${{ steps.discover-ec2.outputs.public_ip }}](https://${{ steps.discover-ec2.outputs.public_ip }})" >> $GITHUB_STEP_SUMMARY
+        echo "🔄 **HTTP (Redirect)**: [http://${{ steps.discover-ec2.outputs.public_ip }}](http://${{ steps.discover-ec2.outputs.public_ip }}) → HTTPS" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 💻 Infrastructure Details" >> $GITHUB_STEP_SUMMARY
+        echo "🆔 **EC2 Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "🌐 **Public IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "📦 **Container**: \`jemya-app\` (running on port 8501)" >> $GITHUB_STEP_SUMMARY
+        echo "🔒 **SSL**: Self-signed certificate" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🎉 **Deployment completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')**"
+
+  # Notification job (optional - runs on both success and failure)
+  notify:
+    name: 📢 Notify Results
+    runs-on: ubuntu-latest
+    needs: [deployment-gate, deploy]
+    if: always() && needs.deployment-gate.outputs.should_deploy == 'true'
+    
+    steps:
+    - name: 📢 Deployment Results
+      run: |
+        if [ "${{ needs.deploy.result }}" = "success" ]; then
+          echo "🎉 Deployment successful!"
+          echo "🌐 Application URL: https://${{ needs.deploy.outputs.public_ip || 'check-ec2-instance' }}"
+        else
+          echo "❌ Deployment failed!"
+          echo "🔍 Check the deployment logs above for details"
+        fi
+        
+        echo ""
+        echo "📋 Deployment Details:"
+        echo "   Trigger: ${{ github.event_name }}"
+        echo "   Actor: ${{ github.actor }}"
+        echo "   Environment: ${{ inputs.environment || 'production' }}"
+        echo "   Image Tag: ${{ needs.deployment-gate.outputs.image_tag }}"
+        echo "   Reason: ${{ needs.deployment-gate.outputs.deploy_reason }}"
