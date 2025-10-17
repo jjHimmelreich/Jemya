@@ -5,14 +5,18 @@ This directory contains scripts and configurations for setting up and managing J
 ## 📁 Files Overview
 
 ### Infrastructure Setup
-- `setup-aws-infrastructure.sh` - Creates AWS resources (ECR, IAM roles, etc.)
-- `setup-ec2-instance.sh` - Configures EC2 instance with all required software
+- `setup-infrastructure.sh` - **Complete infrastructure setup** (creates all AWS resources)
+
+### Infrastructure Management
+- `cleanup-infrastructure.sh` - **Safely removes all AWS resources for clean rebuild**
 
 ### Configuration Files
 - `aws-deployment-policy.json` - IAM policy for GitHub Actions deployment user
-- `ec2-trust-policy.json` - IAM trust policy for EC2 instance role
-- `nginx-jemya.conf` - Nginx configuration for the application
-- `update-iam-policy.sh` - Updates IAM policies
+- `admin-user-policy.json` - IAM policy for admin user access
+- `nginx-jemya.conf` - Production nginx configuration with HTTPS
+
+### Documentation
+- `AWS-IAM-SECURITY-GUIDE.md` - Security best practices and guidelines
 
 ## 🚀 Quick Start
 
@@ -30,25 +34,47 @@ aws configure
 ### 2. Setup AWS Infrastructure
 ```bash
 # Run the infrastructure setup script
-./aws/setup-aws-infrastructure.sh
+./aws/setup-infrastructure.sh
 ```
 
 This creates:
 - ✅ ECR Repository for Docker images
-- ✅ IAM Role for EC2 instance
-- ✅ IAM Instance Profile
-- ✅ Custom IAM policies for ECR access
+- ✅ EC2 instance with proper configuration
+- ✅ IAM users and policies for deployment
+- ✅ Security groups and networking
+- ✅ SSL certificates and nginx configuration
 
-### 3. Configure EC2 Instance
+## 🧹 Clean Rebuild Process
+
+If you need to start fresh or encounter issues:
+
+### Step 1: Clean Existing Infrastructure
 ```bash
-# Copy and run setup script
-scp -i ~/.ssh/jemya-key-20251016.pem aws/setup-ec2-instance.sh ec2-user@YOUR_EC2_IP:/tmp/
-ssh -i ~/.ssh/jemya-key-20251016.pem ec2-user@YOUR_EC2_IP "chmod +x /tmp/setup-ec2-instance.sh && /tmp/setup-ec2-instance.sh"
+# Review what will be deleted (dry run)
+./aws/cleanup-infrastructure.sh --dry-run
+
+# Interactive cleanup with confirmations
+./aws/cleanup-infrastructure.sh
+
+# Force cleanup (no confirmations - DANGEROUS!)
+./aws/cleanup-infrastructure.sh --force
 ```
 
-### 4. Deploy Application
+### Step 2: Rebuild Infrastructure
+```bash
+# Setup everything from scratch
+./aws/setup-infrastructure.sh
+```
 
-The CI/CD pipeline will automatically deploy when you push to main branch and add the EC2_SSH_KEY secret.
+This pattern is useful for:
+- 🔄 **Development cycles** - Clean slate for testing
+- 🐛 **Troubleshooting** - Eliminate configuration drift
+- 🏗️ **Infrastructure updates** - Apply new configurations
+- 💰 **Cost management** - Tear down when not needed
+
+### 3. Deploy Application
+
+The CI/CD pipeline will automatically deploy when you push to main branch and add the required GitHub secrets.
 
 ## 🔧 Configuration Details
 

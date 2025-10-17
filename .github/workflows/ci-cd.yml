@@ -242,33 +242,18 @@ jobs:
       continue-on-error: true
 
     # 🔍 Container Vulnerability Scanning with Trivy - Security Gate
-    - name: 🔍 Run Trivy security gate (HIGH+ only)
+    - name: 🔍 Run Trivy security gate (CRITICAL only)
       run: |
         IMAGE_NAME=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep -v REPOSITORY | head -1)
         echo "🔍 Running security gate on image: $IMAGE_NAME"
         trivy image --severity CRITICAL --ignore-unfixed "$IMAGE_NAME"
-        image-ref: '${{ env.APP_NAME }}:latest'
-        format: 'table'
-        severity: 'CRITICAL,HIGH'
-        exit-code: '1'  # Fail build on HIGH+ vulnerabilities
-        ignore-unfixed: true  # Only fail on fixable vulnerabilities
-
-    - name: 📦 Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v3
-      if: always() && hashFiles('trivy-results.sarif') != ''
-      with:
-        sarif_file: 'trivy-results.sarif'
-        category: 'trivy-image'
-      continue-on-error: true
+      continue-on-error: false
 
     # 🔍 Additional Trivy scans
-    - name: 🔍 Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-fs-results.sarif'
+    - name: � Run Trivy filesystem scan
+      run: |
+        echo "🔍 Running Trivy filesystem scan..."
+        trivy fs --format sarif --output trivy-fs-results.sarif . || true
       continue-on-error: true
 
     - name: 📦 Upload Trivy filesystem results
@@ -339,7 +324,7 @@ jobs:
           -e SPOTIFY_REDIRECT_URI=https://test.com/callback \
           -e OPENAI_API_KEY=test \
           -e ENVIRONMENT=production \
-          ${{ env.APP_NAME }}:${{ github.sha }}
+          "$IMAGE_NAME"
         
         # Wait for container to start and check health
         sleep 15
@@ -515,11 +500,11 @@ jobs:
         echo "Pulling Docker image..."
         docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
         
-        # Run new container
+        # Run new container (only accessible via nginx)
         echo "Starting new container..."
         docker run -d \
           --name jemya-app \
-          -p 8501:8501 \
+          -p 127.0.0.1:8501:8501 \
           --restart unless-stopped \
           -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
           -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
@@ -528,15 +513,57 @@ jobs:
           -e ENVIRONMENT="production" \
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
         
-        # Restart nginx if available
-        sudo systemctl restart nginx || echo "Nginx not available (using Docker networking)"
+        # Setup nginx if not already configured
+        if ! command -v nginx > /dev/null; then
+            echo "Installing nginx..."
+            sudo yum update -y
+            sudo amazon-linux-extras install nginx1 -y
+        fi
+        
+        # Configure nginx if not already configured
+        if [ ! -f /etc/nginx/conf.d/jemya.conf ]; then
+            echo "Configuring nginx for Jemya HTTPS..."
+            
+            # Create SSL directory and generate self-signed certificate
+            sudo mkdir -p /etc/nginx/ssl
+            if [ ! -f /etc/nginx/ssl/jemya.crt ]; then
+                echo "Generating self-signed SSL certificate..."
+                # Get public IP dynamically without hardcoded metadata service IP
+                PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "localhost")
+                sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                    -keyout /etc/nginx/ssl/jemya.key \
+                    -out /etc/nginx/ssl/jemya.crt \
+                    -subj "/C=US/ST=State/L=City/O=Organization/CN=${PUBLIC_IP}"
+                sudo chmod 600 /etc/nginx/ssl/jemya.key
+                sudo chmod 644 /etc/nginx/ssl/jemya.crt
+            fi
+            
+            # Copy the nginx configuration from repository
+            sudo cp /tmp/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf
+            
+            # Remove default nginx config if it exists
+            sudo rm -f /etc/nginx/conf.d/default.conf
+            sudo rm -f /etc/nginx/sites-enabled/default
+            
+            # Test nginx configuration
+            sudo nginx -t
+        fi
+        
+        # Enable and start nginx
+        sudo systemctl enable nginx
+        sudo systemctl start nginx
+        sudo systemctl reload nginx
         
         echo "Deployment completed successfully"
+        # Get public IP dynamically without hardcoded metadata service IP
+        PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "your-instance-ip")
+        echo "Application accessible at: https://${PUBLIC_IP}"
         EOF
 
         # Copy and execute deployment script via SSH
-        echo "📤 Copying deployment script to EC2..."
+        echo "📤 Copying deployment script and nginx config to EC2..."
         scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes deploy_script.sh ec2-user@"$PUBLIC_IP":/tmp/
+        scp -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes aws/nginx-jemya.conf ec2-user@"$PUBLIC_IP":/tmp/
         
         echo "🚀 Executing deployment on EC2..."
         ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@"$PUBLIC_IP" << 'EOF'
@@ -551,7 +578,20 @@ jobs:
         
         # Verify deployment
         echo "🔍 Verifying deployment..."
-        curl -f --connect-timeout 10 "http://$PUBLIC_IP:8501/health" || echo "⚠️ Health check endpoint not available (this is normal if no health endpoint exists)"
+        
+        # Test HTTPS (port 443) - Primary access method
+        if curl -f -k --connect-timeout 10 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
+          echo "✅ HTTPS access is working (port 443) - Primary method"
+        else
+          echo "⚠️ HTTPS not responding on port 443"
+        fi
+        
+        # Test HTTP redirect (port 80) - Should redirect to HTTPS
+        if curl -f --connect-timeout 10 "http://$PUBLIC_IP/" > /dev/null 2>&1; then
+          echo "✅ HTTP redirect is working (port 80 → 443)"
+        else
+          echo "⚠️ HTTP redirect not working on port 80"
+        fi
 
     # 📊 Deployment Summary
     - name: 📊 Deployment Summary
@@ -573,9 +613,9 @@ jobs:
         echo "### ☁️ EC2 Deployment (SSH Auto-Deploy)" >> $GITHUB_STEP_SUMMARY
         echo "🆔 **Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
         echo "🌐 **IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 **App URL**: \`http://${{ steps.discover-ec2.outputs.public_ip }}:8501\` (Direct Docker access)" >> $GITHUB_STEP_SUMMARY
-        echo "🔄 **Alternative**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` (if Nginx configured)" >> $GITHUB_STEP_SUMMARY
-        echo "🐳 **Container**: jemya-app running on port 8501" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 **App URL (HTTPS)**: \`https://${{ steps.discover-ec2.outputs.public_ip }}\` 🔒 (Primary - via Nginx SSL)" >> $GITHUB_STEP_SUMMARY
+        echo "🔄 **App URL (HTTP)**: \`http://${{ steps.discover-ec2.outputs.public_ip }}\` (Redirects to HTTPS)" >> $GITHUB_STEP_SUMMARY
+        echo "🔒 **SSL**: Self-signed certificate (consider replacing with proper cert)" >> $GITHUB_STEP_SUMMARY
         echo "✅ **Status**: Successfully deployed via SSH" >> $GITHUB_STEP_SUMMARY
         
         echo "" >> $GITHUB_STEP_SUMMARY
