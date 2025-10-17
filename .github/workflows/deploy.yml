@@ -99,6 +99,47 @@ jobs:
         echo "   Image Tag: $IMAGE_TAG"
         echo "   Reason: $DEPLOY_REASON"
 
+    - name: 🔍 Pre-deployment Infrastructure Check
+      if: steps.gate.outputs.should_deploy == 'true'
+      run: |
+        echo "🔍 Quick infrastructure connectivity check..."
+        
+        # Configure AWS credentials for the check
+        export AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
+        export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+        export AWS_DEFAULT_REGION="${{ env.AWS_DEFAULT_REGION }}"
+        
+        # Check if EC2 instance exists and is running
+        echo "🖥️ Checking EC2 instance status..."
+        INSTANCE_INFO=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=jemya-instance" \
+                    "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].[InstanceId,PublicIpAddress,State.Name]' \
+          --output text 2>/dev/null || echo "None None None")
+        
+        if [ "$INSTANCE_INFO" = "None None None" ] || [ -z "$INSTANCE_INFO" ]; then
+          echo "❌ No running Jemya EC2 instance found!"
+          echo "💡 Deployment will fail - instance not available"
+          exit 1
+        fi
+        
+        INSTANCE_ID=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f1)
+        PUBLIC_IP=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f2)
+        STATE=$(echo "$INSTANCE_INFO" | cut -d$'\t' -f3)
+        
+        echo "✅ Found instance: $INSTANCE_ID ($STATE) at $PUBLIC_IP"
+        
+        # Quick port connectivity check
+        echo "🌐 Testing basic connectivity to $PUBLIC_IP:22..."
+        if ! nc -zv "$PUBLIC_IP" 22 2>/dev/null; then
+          echo "❌ Cannot reach SSH port on target instance"
+          echo "💡 Deployment will likely fail - check security groups"
+          # Don't fail the gate, let the detailed check in deploy job handle it
+          echo "⚠️ Proceeding anyway - detailed check will happen in deploy job"
+        else
+          echo "✅ SSH port is accessible"
+        fi
+
   # Deploy to production environment
   deploy:
     name: 🚀 Deploy to ${{ inputs.environment || 'production' }}
@@ -215,9 +256,12 @@ jobs:
         echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
         echo "private_ip=$PRIVATE_IP" >> $GITHUB_OUTPUT
 
-    - name: 🔑 Validate SSH Access
+    - name: 🔑 Validate SSH Access & Connectivity
       run: |
         PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
+        INSTANCE_ID="${{ steps.discover-ec2.outputs.instance_id }}"
+        
+        echo "🔍 Comprehensive SSH connectivity check for $PUBLIC_IP"
         
         # Check if we have SSH key for deployment
         if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
@@ -240,15 +284,101 @@ jobs:
         fi
         echo "✅ SSH key is valid"
         
-        # Test network connectivity
+        # Test network connectivity to SSH port
         echo "🌐 Testing network connectivity to $PUBLIC_IP:22..."
-        if ! nc -zv "$PUBLIC_IP" 22; then
+        if ! nc -zv "$PUBLIC_IP" 22 2>&1; then
           echo "❌ Cannot connect to $PUBLIC_IP:22"
-          echo "💡 Check security groups and network ACLs"
+          echo "💡 Possible issues:"
+          echo "   - Security groups don't allow GitHub Actions IPs"
+          echo "   - Instance is not running"
+          echo "   - Network ACLs blocking traffic"
+          echo "   - SSH service not running on instance"
           rm -f ec2_key.pem
           exit 1
         fi
         echo "✅ Port 22 is accessible"
+        
+        # Test actual SSH connection with authentication
+        echo "🔐 Testing SSH authentication and connection..."
+        SSH_OPTIONS="-i ec2_key.pem -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o BatchMode=yes"
+        
+        if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "echo 'SSH connection successful'" 2>/dev/null; then
+          echo "❌ SSH authentication failed"
+          echo ""
+          echo "🔍 Debugging SSH connection..."
+          
+          # Try verbose SSH for debugging
+          echo "🔧 Attempting verbose SSH connection for diagnosis..."
+          ssh -v $SSH_OPTIONS ubuntu@$PUBLIC_IP "echo 'test'" 2>&1 | head -20 || true
+          
+          echo ""
+          echo "💡 Common SSH authentication failures:"
+          echo "   1. Wrong SSH key in GitHub secrets"
+          echo "   2. Key doesn't match the EC2 instance key pair"
+          echo "   3. GitHub Actions IP not in security groups"
+          echo "   4. Instance user is not 'ubuntu' (try 'ec2-user')"
+          echo "   5. SSH service not running on instance"
+          
+          # Check security groups
+          echo ""
+          echo "🔍 Checking security groups for GitHub Actions IP ranges..."
+          
+          # Get current public IP of GitHub Actions runner
+          GITHUB_IP=$(curl -s https://api.ipify.org/ || echo "unknown")
+          echo "   GitHub Actions Runner IP: $GITHUB_IP"
+          
+          # Check if this IP might be covered by security groups
+          aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --query 'Reservations[0].Instances[0].SecurityGroups[*].{GroupId:GroupId,GroupName:GroupName}' \
+            --output table || true
+          
+          rm -f ec2_key.pem
+          exit 1
+        fi
+        
+        echo "✅ SSH authentication successful"
+        
+        # Test basic system access and prerequisites
+        echo "🔧 Checking deployment prerequisites on target system..."
+        
+        # Check if docker is available and running
+        if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "docker --version && docker ps" > /dev/null 2>&1; then
+          echo "❌ Docker is not available or not running on target system"
+          echo "💡 Docker is required for deployment"
+          rm -f ec2_key.pem
+          exit 1
+        fi
+        echo "✅ Docker is available and running"
+        
+        # Check if AWS CLI is available for ECR access
+        if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "aws --version" > /dev/null 2>&1; then
+          echo "❌ AWS CLI is not available on target system"
+          echo "💡 AWS CLI is required for ECR access"
+          rm -f ec2_key.pem
+          exit 1
+        fi
+        echo "✅ AWS CLI is available"
+        
+        # Test ECR access from target system
+        echo "🐳 Testing ECR access from target system..."
+        if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_DEFAULT_REGION }}" > /dev/null 2>&1; then
+          echo "❌ Target system cannot access ECR repository"
+          echo "💡 Check IAM role attached to EC2 instance"
+          echo "💡 Required permissions: ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability, ecr:GetDownloadUrlForLayer, ecr:BatchGetImage"
+          rm -f ec2_key.pem
+          exit 1
+        fi
+        echo "✅ Target system can access ECR"
+        
+        echo ""
+        echo "🎉 All SSH connectivity and deployment prerequisites verified!"
+        echo "   ✅ SSH key authentication working"
+        echo "   ✅ Network connectivity established" 
+        echo "   ✅ Docker available and running"
+        echo "   ✅ AWS CLI available"
+        echo "   ✅ ECR access confirmed"
+        echo ""
         
         # Cleanup temporary file
         rm -f ec2_key.pem

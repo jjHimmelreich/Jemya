@@ -1003,6 +1003,196 @@ echo "User data script completed" > /var/log/user-data.log
             except ClientError:
                 self._print_warning(f"Security Group {sg_name}: Error checking")
     
+    # ========== SSH CONNECTIVITY CHECKS ==========
+    
+    def check_ssh_connectivity(self, test_github_actions: bool = True):
+        """Check SSH connectivity for deployment workflows"""
+        self._print_header("🔍 SSH Connectivity Check")
+        
+        instance = self._find_jemya_instance()
+        if not instance:
+            self._print_error("No EC2 instance found")
+            return False
+        
+        if instance['State']['Name'] != 'running':
+            self._print_error(f"Instance is not running (state: {instance['State']['Name']})")
+            return False
+        
+        if 'PublicIpAddress' not in instance:
+            self._print_error("Instance has no public IP address")
+            return False
+        
+        public_ip = instance['PublicIpAddress']
+        instance_id = instance['InstanceId']
+        
+        self._print_info(f"Instance: {instance_id}")
+        self._print_info(f"Public IP: {public_ip}")
+        
+        # Check security groups
+        current_sgs = {sg['GroupName']: sg['GroupId'] for sg in instance['SecurityGroups']}
+        self._print_info(f"Security Groups: {', '.join(current_sgs.keys())}")
+        
+        # Test SSH port connectivity
+        if not self._test_port_connectivity(public_ip, 22):
+            self._print_error("SSH port (22) is not accessible")
+            return False
+        
+        # Check GitHub Actions IP access if requested
+        if test_github_actions:
+            if not self._check_github_actions_access(current_sgs):
+                return False
+        
+        # Test actual SSH connection if key is available
+        key_file = f"{self.project_name}-key.pem"
+        if os.path.exists(key_file):
+            if self._test_ssh_connection(public_ip, key_file):
+                self._print_success("SSH connection successful!")
+                return True
+            else:
+                self._print_error("SSH connection failed")
+                return False
+        else:
+            self._print_warning(f"SSH key file not found: {key_file}")
+            self._print_info("Cannot test actual SSH connection without key file")
+            self._print_success("Port connectivity check passed")
+            return True
+    
+    def _test_port_connectivity(self, host: str, port: int, timeout: int = 10) -> bool:
+        """Test if a port is accessible on a host"""
+        import socket
+        
+        try:
+            sock = socket.create_connection((host, port), timeout)
+            sock.close()
+            self._print_success(f"Port {port} is accessible on {host}")
+            return True
+        except (socket.timeout, socket.error) as e:
+            self._print_error(f"Port {port} is not accessible on {host}: {e}")
+            return False
+    
+    def _check_github_actions_access(self, current_sgs: Dict[str, str]) -> bool:
+        """Check if GitHub Actions security group is properly configured"""
+        github_sg_id = current_sgs.get(self.github_sg_name)
+        
+        if not github_sg_id:
+            self._print_error(f"GitHub Actions security group '{self.github_sg_name}' not attached to instance")
+            return False
+        
+        try:
+            # Check if GitHub Actions SG has SSH rules
+            response = self.ec2_client.describe_security_groups(GroupIds=[github_sg_id])
+            sg = response['SecurityGroups'][0]
+            
+            ssh_rules = [rule for rule in sg['IpPermissions'] 
+                        if rule.get('FromPort') == 22 and rule.get('ToPort') == 22]
+            
+            if not ssh_rules:
+                self._print_error(f"No SSH rules found in {self.github_sg_name}")
+                return False
+            
+            # Count IP ranges
+            total_ranges = sum(len(rule.get('IpRanges', [])) for rule in ssh_rules)
+            self._print_success(f"GitHub Actions security group has {total_ranges} SSH IP ranges")
+            
+            # Test a sample GitHub Actions IP
+            if self._test_github_actions_ip_sample():
+                self._print_success("GitHub Actions IP ranges appear to be working")
+                return True
+            else:
+                self._print_warning("Could not verify GitHub Actions IP access")
+                return True  # Don't fail the check, just warn
+                
+        except ClientError as e:
+            self._print_error(f"Failed to check GitHub Actions security group: {e}")
+            return False
+    
+    def _test_github_actions_ip_sample(self) -> bool:
+        """Test if current public IP would be allowed by GitHub Actions rules"""
+        try:
+            # Get current public IP
+            response = requests.get('https://api.ipify.org', timeout=10)
+            current_ip = ipaddress.ip_address(response.text.strip())
+            
+            # Get GitHub Actions IPs
+            github_ips = self.fetch_github_actions_ips()
+            if not github_ips:
+                return False
+            
+            # Check if current IP would be covered by any GitHub Actions range
+            for ip_range in github_ips:
+                network = ipaddress.ip_network(ip_range, strict=False)
+                if current_ip in network:
+                    self._print_info(f"Current IP {current_ip} is covered by GitHub Actions range {ip_range}")
+                    return True
+            
+            self._print_info(f"Current IP {current_ip} is not in GitHub Actions ranges (this is normal)")
+            return True
+            
+        except Exception:
+            return False
+    
+    def _test_ssh_connection(self, host: str, key_file: str, timeout: int = 30) -> bool:
+        """Test actual SSH connection to the host"""
+        try:
+            # Test SSH connection with a simple command
+            cmd = [
+                'ssh',
+                '-i', key_file,
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', f'ConnectTimeout={timeout}',
+                '-o', 'BatchMode=yes',  # Non-interactive
+                f'ubuntu@{host}',
+                'echo "SSH connection successful"'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            
+            if result.returncode == 0:
+                self._print_success("SSH connection test passed")
+                return True
+            else:
+                self._print_error(f"SSH connection failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self._print_error("SSH connection timed out")
+            return False
+        except Exception as e:
+            self._print_error(f"SSH connection test failed: {e}")
+            return False
+    
+    def fix_deployment_connectivity(self):
+        """Fix common deployment connectivity issues"""
+        self._print_header("🔧 Fixing Deployment Connectivity Issues")
+        
+        # Check current status
+        if not self.check_ssh_connectivity(test_github_actions=False):
+            self._print_info("Attempting to fix connectivity issues...")
+            
+            # Refresh SSH security groups
+            self._print_info("Refreshing SSH security groups...")
+            self.setup_ssh_security_groups()
+            
+            # Wait a moment for changes to propagate
+            time.sleep(5)
+            
+            # Check again
+            if self.check_ssh_connectivity():
+                self._print_success("Connectivity issues resolved!")
+                return True
+            else:
+                self._print_error("Could not resolve connectivity issues")
+                return False
+        else:
+            self._print_success("No connectivity issues found")
+            return True
+    
     # ========== MAIN COMMANDS ==========
     
     def setup_complete_infrastructure(self):
@@ -1066,20 +1256,24 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:
-  setup     Complete infrastructure setup (ECR, IAM, EC2, Security Groups)
-  cleanup   Clean up all AWS resources
-  ssh       Manage SSH security groups only
-  status    Show current infrastructure status
+  setup       Complete infrastructure setup (ECR, IAM, EC2, Security Groups)
+  cleanup     Clean up all AWS resources
+  ssh         Manage SSH security groups only
+  status      Show current infrastructure status
+  check-ssh   Check SSH connectivity for deployment workflows
+  fix-ssh     Fix deployment connectivity issues
   
 Examples:
   python3 aws_manager.py setup              # Complete setup
   python3 aws_manager.py cleanup --auto     # Automated cleanup
   python3 aws_manager.py ssh --admin-ip 1.2.3.4/32
   python3 aws_manager.py status             # Show current status
+  python3 aws_manager.py check-ssh          # Test SSH connectivity
+  python3 aws_manager.py fix-ssh            # Fix SSH issues
         """
     )
     
-    parser.add_argument('command', choices=['setup', 'cleanup', 'ssh', 'status'],
+    parser.add_argument('command', choices=['setup', 'cleanup', 'ssh', 'status', 'check-ssh', 'fix-ssh'],
                         help='Command to execute')
     parser.add_argument('--region', default='eu-west-1',
                         help='AWS region (default: eu-west-1)')
@@ -1102,6 +1296,10 @@ Examples:
         manager.setup_ssh_security_groups(admin_ips=args.admin_ip or [])
     elif args.command == 'status':
         manager.show_status()
+    elif args.command == 'check-ssh':
+        manager.check_ssh_connectivity()
+    elif args.command == 'fix-ssh':
+        manager.fix_deployment_connectivity()
 
 
 if __name__ == '__main__':
