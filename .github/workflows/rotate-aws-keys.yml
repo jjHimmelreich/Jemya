@@ -24,6 +24,11 @@ jobs:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
 
+    - name: 🕐 Set rotation timestamps
+      run: |
+        echo "ROTATION_DATE=$(date -u)" >> $GITHUB_ENV
+        echo "NEXT_ROTATION=$(date -u -d '+90 days')" >> $GITHUB_ENV
+
     - name: ⚙️ Configure AWS credentials (old keys)
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -74,6 +79,15 @@ jobs:
           --user-name $DEPLOYMENT_USER \
           --access-key-id ${{ secrets.AWS_ACCESS_KEY_ID }}
 
+    - name: 🧹 Cleanup on failure
+      if: failure() && steps.new-key.outputs.new-access-key
+      run: |
+        echo "🚨 Rotation failed - cleaning up new key"
+        # Delete the new key we created if rotation failed
+        aws iam delete-access-key \
+          --user-name $DEPLOYMENT_USER \
+          --access-key-id ${{ steps.new-key.outputs.new-access-key }} || true
+
     - name: 📊 Rotation summary
       run: |
         echo "## 🔄 AWS Key Rotation Summary" >> $GITHUB_STEP_SUMMARY
@@ -85,8 +99,49 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "⏰ **Next rotation**: $(date -u -d '+90 days')" >> $GITHUB_STEP_SUMMARY
 
-    - name: 📧 Send notification (optional)
-      if: always()
-      run: |
-        # You can add Slack/Teams/Email notification here
-        echo "Key rotation completed for user: $DEPLOYMENT_USER"
+    - name: 📧 Send success notification
+      if: success()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.NOTIFICATION_EMAIL }}
+        password: ${{ secrets.NOTIFICATION_EMAIL_PASSWORD }}
+        subject: "✅ AWS Key Rotation Successful - Jemya Project"
+        to: jenya.himmelreich@gmail.com
+        from: ${{ secrets.NOTIFICATION_EMAIL }}
+        body: |
+          🔄 AWS Key Rotation Summary
+          
+          ✅ Status: Successfully rotated AWS access keys
+          📅 Date: ${{ env.ROTATION_DATE }}
+          👤 User: ${{ env.DEPLOYMENT_USER }}
+          🔑 New Key ID: ${{ steps.new-key.outputs.new-access-key }}
+          
+          ⏰ Next rotation scheduled: ${{ env.NEXT_ROTATION }}
+          
+          🔗 View workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    - name: 📧 Send failure notification
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.NOTIFICATION_EMAIL }}
+        password: ${{ secrets.NOTIFICATION_EMAIL_PASSWORD }}
+        subject: "❌ AWS Key Rotation Failed - Jemya Project"
+        to: jenya.himmelreich@gmail.com
+        from: ${{ secrets.NOTIFICATION_EMAIL }}
+        body: |
+          🚨 AWS Key Rotation Failed
+          
+          ❌ Status: Key rotation encountered an error
+          📅 Date: ${{ env.ROTATION_DATE }}
+          👤 User: ${{ env.DEPLOYMENT_USER }}
+          
+          Please check the workflow logs immediately and manually verify AWS access keys.
+          
+          🔗 View workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          ⚠️ Action required: Manual key rotation may be needed.
