@@ -7,7 +7,12 @@
             "Action": [
                 "ecr:GetAuthorizationToken"
             ],
-            "Resource": "*"
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "eu-west-1"
+                }
+            }
         },
         {
             "Sid": "ECRRepositoryAccess",
@@ -24,7 +29,7 @@
                 "ecr:CompleteLayerUpload"
             ],
             "Resource": [
-                "arn:aws:ecr:*:*:repository/jemya"
+                "arn:aws:ecr:eu-west-1:*:repository/jemya"
             ]
         }
     ]

@@ -77,8 +77,8 @@ fi
 
 # Check and create ECR access policy for EC2
 echo -e "${YELLOW}🔐 Setting up ECR access policy for EC2...${NC}"
-# Create unified ECR access policy (for both EC2 and GitHub Actions)
-ECR_POLICY_NAME="JemyaECRAccess"
+# Create unified ECR access policy (for both EC2 and GitHub Actions)  
+ECR_POLICY_NAME="JemyaGitHubActionsECRPolicy"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${ECR_POLICY_NAME}"
 
@@ -86,13 +86,32 @@ if aws iam get-policy --policy-arn "$ECR_POLICY_ARN" &> /dev/null; then
     echo -e "${GREEN}✅ Unified ECR access policy already exists: ${ECR_POLICY_NAME}${NC}"
 else
     echo -e "${YELLOW}🔨 Creating unified ECR access policy...${NC}"
-    if [ -f "./aws/ecr-access-policy.json" ]; then
+    if [ -f "./aws/github-actions-user-ecr-policy.json" ]; then
         aws iam create-policy --policy-name "$ECR_POLICY_NAME" \
-            --policy-document file://aws/ecr-access-policy.json \
+            --policy-document file://aws/github-actions-user-ecr-policy.json \
             --description "Comprehensive ECR access for Jemya (EC2 instances and GitHub Actions)"
         echo -e "${GREEN}✅ Unified ECR access policy created: ${ECR_POLICY_NAME}${NC}"
     else
-        echo -e "${RED}❌ ECR policy file not found: aws/ecr-access-policy.json${NC}"
+        echo -e "${RED}❌ ECR policy file not found: aws/github-actions-user-ecr-policy.json${NC}"
+        exit 1
+    fi
+fi
+
+# Create GitHub Actions AWS deployment policy
+AWS_DEPLOY_POLICY_NAME="JemyaGitHubActionsAWSPolicy"
+AWS_DEPLOY_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${AWS_DEPLOY_POLICY_NAME}"
+
+if aws iam get-policy --policy-arn "$AWS_DEPLOY_POLICY_ARN" &> /dev/null; then
+    echo -e "${GREEN}✅ GitHub Actions AWS deployment policy already exists: ${AWS_DEPLOY_POLICY_NAME}${NC}"
+else
+    echo -e "${YELLOW}🔨 Creating GitHub Actions AWS deployment policy...${NC}"
+    if [ -f "./aws/github-actions-user-aws-deployment-policy.json" ]; then
+        aws iam create-policy --policy-name "$AWS_DEPLOY_POLICY_NAME" \
+            --policy-document file://aws/github-actions-user-aws-deployment-policy.json \
+            --description "AWS deployment permissions for GitHub Actions"
+        echo -e "${GREEN}✅ GitHub Actions AWS deployment policy created: ${AWS_DEPLOY_POLICY_NAME}${NC}"
+    else
+        echo -e "${RED}❌ GitHub Actions AWS deployment policy file not found: aws/github-actions-user-aws-deployment-policy.json${NC}"
         exit 1
     fi
 fi
