@@ -486,23 +486,33 @@ jobs:
         # Create deployment script
         cat > deploy_script.sh << 'EOF'
         #!/bin/bash
-        set -e
+        set -e  # Exit immediately on any error
         echo "Deploying Jemya to EC2..."
         
-        # ECR login
-        aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+        # ECR login with error checking
+        echo "🔐 Logging into ECR..."
+        if ! aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}; then
+          echo "❌ ECR login failed"
+          exit 1
+        fi
+        echo "✅ ECR login successful"
         
         # Stop and remove existing container
+        echo "🛑 Stopping existing container..."
         docker stop jemya-app || true
         docker rm jemya-app || true
         
-        # Pull new image
-        echo "Pulling Docker image..."
-        docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        # Pull new image with error checking
+        echo "📥 Pulling Docker image..."
+        if ! docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}; then
+          echo "❌ Failed to pull Docker image"
+          exit 1
+        fi
+        echo "✅ Docker image pulled successfully"
         
         # Run new container (only accessible via nginx)
-        echo "Starting new container..."
-        docker run -d \
+        echo "🚀 Starting new container..."
+        CONTAINER_ID=$(docker run -d \
           --name jemya-app \
           -p 127.0.0.1:8501:8501 \
           --restart unless-stopped \
@@ -511,53 +521,114 @@ jobs:
           -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
           -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
           -e ENVIRONMENT="production" \
-          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }})
+        
+        if [ -z "$CONTAINER_ID" ]; then
+          echo "❌ Failed to start container"
+          exit 1
+        fi
+        
+        # Wait for container to be healthy
+        echo "⏳ Waiting for container to start..."
+        sleep 10
+        
+        if ! docker ps | grep jemya-app > /dev/null; then
+          echo "❌ Container failed to start or crashed"
+          echo "📋 Container logs:"
+          docker logs jemya-app --tail 20 || true
+          exit 1
+        fi
+        echo "✅ Container started successfully"
         
         # Setup nginx if not already configured
         if ! command -v nginx > /dev/null; then
-            echo "Installing nginx..."
+            echo "📦 Installing nginx..."
             sudo yum update -y
             sudo amazon-linux-extras install nginx1 -y
+        fi
         fi
         
         # Configure nginx if not already configured
         if [ ! -f /etc/nginx/conf.d/jemya.conf ]; then
-            echo "Configuring nginx for Jemya HTTPS..."
+            echo "🔧 Configuring nginx for Jemya HTTPS..."
             
             # Create SSL directory and generate self-signed certificate
             sudo mkdir -p /etc/nginx/ssl
             if [ ! -f /etc/nginx/ssl/jemya.crt ]; then
-                echo "Generating self-signed SSL certificate..."
+                echo "🔐 Generating self-signed SSL certificate..."
                 # Get public IP dynamically without hardcoded metadata service IP
                 PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "localhost")
-                sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                if ! sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
                     -keyout /etc/nginx/ssl/jemya.key \
                     -out /etc/nginx/ssl/jemya.crt \
-                    -subj "/C=US/ST=State/L=City/O=Organization/CN=${PUBLIC_IP}"
+                    -subj "/C=US/ST=State/L=City/O=Organization/CN=${PUBLIC_IP}"; then
+                  echo "❌ Failed to generate SSL certificate"
+                  exit 1
+                fi
                 sudo chmod 600 /etc/nginx/ssl/jemya.key
                 sudo chmod 644 /etc/nginx/ssl/jemya.crt
+                echo "✅ SSL certificate generated"
             fi
             
             # Copy the nginx configuration from repository
-            sudo cp /tmp/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf
+            if ! sudo cp /tmp/nginx-jemya.conf /etc/nginx/conf.d/jemya.conf; then
+              echo "❌ Failed to copy nginx configuration"
+              exit 1
+            fi
+            echo "✅ Nginx configuration copied"
             
             # Remove default nginx config if it exists
             sudo rm -f /etc/nginx/conf.d/default.conf
             sudo rm -f /etc/nginx/sites-enabled/default
             
             # Test nginx configuration
-            sudo nginx -t
+            if ! sudo nginx -t; then
+              echo "❌ Nginx configuration test failed"
+              exit 1
+            fi
+            echo "✅ Nginx configuration test passed"
         fi
         
         # Enable and start nginx
-        sudo systemctl enable nginx
-        sudo systemctl start nginx
-        sudo systemctl reload nginx
+        echo "🔧 Starting nginx services..."
+        if ! sudo systemctl enable nginx; then
+          echo "❌ Failed to enable nginx"
+          exit 1
+        fi
         
-        echo "Deployment completed successfully"
+        if ! sudo systemctl start nginx; then
+          echo "❌ Failed to start nginx"
+          exit 1
+        fi
+        
+        if ! sudo systemctl reload nginx; then
+          echo "❌ Failed to reload nginx"
+          exit 1
+        fi
+        echo "✅ Nginx services started successfully"
+        
+        # Final verification
+        echo "🔍 Final deployment verification..."
+        sleep 5
+        
+        # Check if container is still running
+        if ! docker ps | grep jemya-app > /dev/null; then
+          echo "❌ Container stopped running after deployment"
+          docker logs jemya-app --tail 10 || true
+          exit 1
+        fi
+        
+        # Check if nginx is running
+        if ! sudo systemctl is-active nginx > /dev/null; then
+          echo "❌ Nginx is not running"
+          sudo systemctl status nginx || true
+          exit 1
+        fi
+        
+        echo "✅ Deployment completed successfully"
         # Get public IP dynamically without hardcoded metadata service IP
         PUBLIC_IP=$(curl -s --max-time 5 http://checkip.amazonaws.com/ || echo "your-instance-ip")
-        echo "Application accessible at: https://${PUBLIC_IP}"
+        echo "🌐 Application accessible at: https://${PUBLIC_IP}"
         EOF
 
         # Copy and execute deployment script via SSH
@@ -567,31 +638,79 @@ jobs:
         
         echo "🚀 Executing deployment on EC2..."
         ssh -i ec2_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ec2-user@"$PUBLIC_IP" << 'EOF'
+        set -e  # Exit on any error
         chmod +x /tmp/deploy_script.sh
-        /tmp/deploy_script.sh
-        exit 0
+        
+        echo "📋 Starting deployment script..."
+        if /tmp/deploy_script.sh; then
+          echo "✅ Deployment script completed successfully"
+          exit 0
+        else
+          echo "❌ Deployment script failed"
+          exit 1
+        fi
         EOF
+        
+        # Check SSH command exit code
+        SSH_EXIT_CODE=$?
+        if [ $SSH_EXIT_CODE -ne 0 ]; then
+          echo "❌ SSH deployment failed with exit code: $SSH_EXIT_CODE"
+          rm -f ec2_key.pem deploy_script.sh
+          exit 1
+        fi
 
         # Cleanup
         rm -f ec2_key.pem deploy_script.sh
         echo "🎉 Deployment to EC2 completed successfully!"
         
-        # Verify deployment
+        # Verify deployment - CRITICAL CHECKS
         echo "🔍 Verifying deployment..."
+        VERIFICATION_FAILED=false
         
         # Test HTTPS (port 443) - Primary access method
-        if curl -f -k --connect-timeout 10 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
+        echo "🔍 Testing HTTPS access..."
+        if curl -f -k --connect-timeout 30 --max-time 60 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
           echo "✅ HTTPS access is working (port 443) - Primary method"
         else
-          echo "⚠️ HTTPS not responding on port 443"
+          echo "❌ HTTPS not responding on port 443 - DEPLOYMENT FAILED"
+          VERIFICATION_FAILED=true
         fi
         
         # Test HTTP redirect (port 80) - Should redirect to HTTPS
-        if curl -f --connect-timeout 10 "http://$PUBLIC_IP/" > /dev/null 2>&1; then
+        echo "🔍 Testing HTTP redirect..."
+        if curl -f --connect-timeout 30 --max-time 60 "http://$PUBLIC_IP/" > /dev/null 2>&1; then
           echo "✅ HTTP redirect is working (port 80 → 443)"
         else
-          echo "⚠️ HTTP redirect not working on port 80"
+          echo "❌ HTTP redirect not working on port 80 - CHECK NGINX CONFIG"
+          VERIFICATION_FAILED=true
         fi
+        
+        # Test container health
+        echo "🔍 Testing container health..."
+        CONTAINER_STATUS=$(ssh -i ~/.ssh/jemya-key-20251016.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ec2-user@"$PUBLIC_IP" "docker ps --filter name=jemya-app --format '{{.Status}}'" 2>/dev/null || echo "FAILED")
+        
+        if echo "$CONTAINER_STATUS" | grep -q "Up"; then
+          echo "✅ Container is running: $CONTAINER_STATUS"
+        else
+          echo "❌ Container is not running properly: $CONTAINER_STATUS"
+          VERIFICATION_FAILED=true
+        fi
+        
+        # Fail the workflow if any verification failed
+        if [ "$VERIFICATION_FAILED" = true ]; then
+          echo ""
+          echo "❌ DEPLOYMENT VERIFICATION FAILED!"
+          echo "🔍 Check the following:"
+          echo "  • EC2 instance logs: sudo journalctl -u docker"
+          echo "  • Container logs: docker logs jemya-app"
+          echo "  • Nginx logs: sudo journalctl -u nginx"
+          echo "  • Security groups: ports 80, 443 open"
+          echo ""
+          exit 1
+        fi
+        
+        echo ""
+        echo "🎉 All deployment verifications passed!"
 
     # 📊 Deployment Summary
     - name: 📊 Deployment Summary
