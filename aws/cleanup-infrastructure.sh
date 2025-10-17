@@ -139,7 +139,7 @@ show_warning() {
     echo "• ECR repository: $ECR_REPOSITORY"
     echo "• IAM user: jemya-deployment-user (and access keys)"
     echo "• IAM policies: JemyaGitHubActionsECRPolicy, JemyaGitHubActionsAWSPolicy"
-    echo "• Security groups: jemya-sg"
+    echo "• Security groups: jemya-sg, jemya-github-sg, jemya-admin-sg"
     echo "• Key pairs: jemya-key-*"
     echo ""
     echo "⚠️  THIS CANNOT BE UNDONE! ⚠️"
@@ -255,22 +255,26 @@ cleanup_iam_resources() {
 cleanup_security_groups() {
     log_section "Cleaning up Security Groups"
     
-    local sg_name="jemya-sg"
-    local sg_id=$(aws ec2 describe-security-groups \
-        --filters "Name=group-name,Values=$sg_name" \
-        --query 'SecurityGroups[0].GroupId' \
-        --output text \
-        --region "$AWS_REGION" 2>/dev/null || echo "None")
+    # List of security groups to clean up
+    local security_groups=("jemya-sg" "jemya-github-sg" "jemya-admin-sg")
     
-    if [ "$sg_id" != "None" ] && [ -n "$sg_id" ]; then
-        if confirm_action "Delete security group: $sg_name ($sg_id)"; then
-            execute_command \
-                "aws ec2 delete-security-group --group-id $sg_id --region $AWS_REGION" \
-                "Deleting security group: $sg_name"
+    for sg_name in "${security_groups[@]}"; do
+        local sg_id=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=$sg_name" \
+            --query 'SecurityGroups[0].GroupId' \
+            --output text \
+            --region "$AWS_REGION" 2>/dev/null || echo "None")
+        
+        if [ "$sg_id" != "None" ] && [ -n "$sg_id" ]; then
+            if confirm_action "Delete security group: $sg_name ($sg_id)"; then
+                execute_command \
+                    "aws ec2 delete-security-group --group-id $sg_id --region $AWS_REGION" \
+                    "Deleting security group: $sg_name"
+            fi
+        else
+            log_info "Security group '$sg_name' not found or already deleted"
         fi
-    else
-        log_info "Security group '$sg_name' not found"
-    fi
+    done
 }
 
 # Cleanup Key Pairs

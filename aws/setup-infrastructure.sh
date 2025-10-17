@@ -166,7 +166,8 @@ else
     echo -e "${YELLOW}💡 Please create an EC2 instance manually with:${NC}"
     echo -e "${YELLOW}   - Tag: Name=jemya-instance${NC}"
     echo -e "${YELLOW}   - Instance Role: JemyaEC2SessionManagerRole${NC}"
-    echo -e "${YELLOW}   - Security Group: jemya-sg (ports 22, 80, 443)${NC}"
+    echo -e "${YELLOW}   - Security Groups: Run python3 aws/setup_ssh_security.py after creation${NC}"
+    echo -e "${YELLOW}   - Ports: 80 (HTTP), 443 (HTTPS) - SSH managed separately${NC}"
     exit 1
 fi
 
@@ -208,6 +209,35 @@ if [ -n "$INSTANCE_ID" ]; then
     else
         echo -e "${YELLOW}⚠️ EC2 instance has no IAM role - ECR access may not work${NC}"
     fi
+fi
+
+echo ""
+echo -e "${BLUE}🔐 Phase 5: SSH Security Setup${NC}"
+echo "=============================="
+
+if [ -n "$INSTANCE_ID" ]; then
+    echo -e "${YELLOW}🔧 Setting up secure SSH access with dual security groups...${NC}"
+    echo ""
+    
+    if [ -f "./aws/setup_ssh_security.py" ]; then
+        read -p "Set up secure SSH access now? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}🚀 Running SSH security setup...${NC}"
+            python3 aws/setup_ssh_security.py --auto
+            echo ""
+            echo -e "${GREEN}✅ SSH security configured with dual security groups${NC}"
+        else
+            echo -e "${YELLOW}⚠️ SSH security setup skipped${NC}"
+            echo -e "${YELLOW}💡 Run python3 aws/setup_ssh_security.py manually later${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️ SSH security script not found${NC}"
+        echo -e "${YELLOW}💡 Run python3 aws/setup_ssh_security.py manually to secure SSH access${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️ No EC2 instance found - SSH security setup skipped${NC}"
+    echo -e "${YELLOW}💡 Run python3 aws/setup_ssh_security.py after creating EC2 instance${NC}"
 fi
 
 echo ""
