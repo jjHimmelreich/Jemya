@@ -57,13 +57,15 @@ jobs:
           SHOULD_DEPLOY="true"
           DEPLOY_REASON="Manual deployment triggered by ${{ github.actor }}"
           
-          # Use provided image tag or determine from branch
+          # Use provided image tag or find the latest available image
           if [ -n "${{ inputs.image_tag }}" ]; then
             IMAGE_TAG="${{ inputs.image_tag }}"
             echo "🏷️ Using specified image tag: $IMAGE_TAG"
           else
-            IMAGE_TAG="${{ github.sha }}"
-            echo "🏷️ Using current commit as image tag: $IMAGE_TAG"
+            # Use 'latest' tag for manual deployments to avoid commit SHA mismatches
+            IMAGE_TAG="latest"
+            echo "🏷️ Using latest image tag for manual deployment: $IMAGE_TAG"
+            echo "💡 To deploy a specific version, use the 'image_tag' input parameter"
           fi
           
           # Check force deploy flag
@@ -130,7 +132,15 @@ jobs:
         
         echo "🔍 Verifying image exists: $IMAGE_URI"
         
-        # Check if image exists in ECR
+        # Check ECR permissions first
+        echo "🔐 Testing ECR access..."
+        if ! aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_DEFAULT_REGION }} > /dev/null 2>&1; then
+          echo "❌ Cannot access ECR repository. Check AWS permissions."
+          echo "💡 Required permissions: ecr:DescribeRepositories, ecr:DescribeImages"
+          exit 1
+        fi
+        
+        # Check if specific image exists in ECR
         if aws ecr describe-images \
           --repository-name ${{ env.ECR_REPOSITORY }} \
           --image-ids imageTag=$IMAGE_TAG \
@@ -139,8 +149,24 @@ jobs:
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
         else
           echo "❌ Docker image not found in ECR: $IMAGE_URI"
-          echo "💡 Available images:"
-          aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} --query 'imageDetails[*].imageTags' --output table || true
+          echo ""
+          echo "💡 Available images in repository:"
+          if aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} \
+            --query 'imageDetails[*].{Tags:imageTags,Pushed:imagePushedAt}' \
+            --output table --region ${{ env.AWS_DEFAULT_REGION }} 2>/dev/null; then
+            echo ""
+          else
+            echo "   (Could not list images - check ECR permissions)"
+          fi
+          
+          # For manual deployments, suggest using 'latest' tag
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "💡 For manual deployment, try:"
+            echo "   1. Use 'latest' as the image tag"
+            echo "   2. Or run the CI workflow first to build image with tag: $IMAGE_TAG"
+            echo "   3. Or specify an existing image tag in the deployment parameters"
+          fi
+          
           exit 1
         fi
 

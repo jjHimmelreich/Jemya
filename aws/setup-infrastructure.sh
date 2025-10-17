@@ -77,21 +77,22 @@ fi
 
 # Check and create ECR access policy for EC2
 echo -e "${YELLOW}🔐 Setting up ECR access policy for EC2...${NC}"
-ECR_POLICY_NAME="JemyaEC2ECRAccess"
+# Create unified ECR access policy (for both EC2 and GitHub Actions)
+ECR_POLICY_NAME="JemyaECRAccess"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${ECR_POLICY_NAME}"
 
 if aws iam get-policy --policy-arn "$ECR_POLICY_ARN" &> /dev/null; then
-    echo -e "${GREEN}✅ ECR access policy already exists: ${ECR_POLICY_NAME}${NC}"
+    echo -e "${GREEN}✅ Unified ECR access policy already exists: ${ECR_POLICY_NAME}${NC}"
 else
-    echo -e "${YELLOW}🔨 Creating ECR access policy...${NC}"
-    if [ -f "./aws/ec2-ecr-access-policy.json" ]; then
+    echo -e "${YELLOW}🔨 Creating unified ECR access policy...${NC}"
+    if [ -f "./aws/ecr-access-policy.json" ]; then
         aws iam create-policy --policy-name "$ECR_POLICY_NAME" \
-            --policy-document file://aws/ec2-ecr-access-policy.json \
-            --description "ECR access for Jemya EC2 instance"
-        echo -e "${GREEN}✅ ECR access policy created: ${ECR_POLICY_NAME}${NC}"
+            --policy-document file://aws/ecr-access-policy.json \
+            --description "Comprehensive ECR access for Jemya (EC2 instances and GitHub Actions)"
+        echo -e "${GREEN}✅ Unified ECR access policy created: ${ECR_POLICY_NAME}${NC}"
     else
-        echo -e "${RED}❌ ECR policy file not found: aws/ec2-ecr-access-policy.json${NC}"
+        echo -e "${RED}❌ ECR policy file not found: aws/ecr-access-policy.json${NC}"
         exit 1
     fi
 fi
