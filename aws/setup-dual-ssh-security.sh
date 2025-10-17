@@ -18,6 +18,9 @@
 #   ./setup-dual-ssh-security.sh                    # Interactive setup
 #   ./setup-dual-ssh-security.sh --auto             # Auto setup and apply
 #   ./setup-dual-ssh-security.sh --update-github    # Update GitHub IPs only
+
+# Configuration
+AWS_REGION="${AWS_REGION:-eu-west-1}"
 #   ./setup-dual-ssh-security.sh --update-admin     # Update admin IPs only
 
 set -euo pipefail
@@ -117,11 +120,11 @@ echo ""
 echo -e "${BLUE}🌐 Finding VPC${NC}"
 echo "-------------"
 
-VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text --region "$AWS_REGION" 2>/dev/null || echo "None")
 
 if [ "$VPC_ID" = "None" ] || [ "$VPC_ID" = "null" ]; then
     # Get any VPC if no default
-    VPC_ID=$(aws ec2 describe-vpcs --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
+    VPC_ID=$(aws ec2 describe-vpcs --query 'Vpcs[0].VpcId' --output text --region "$AWS_REGION" 2>/dev/null || echo "None")
     
     if [ "$VPC_ID" = "None" ] || [ "$VPC_ID" = "null" ]; then
         echo -e "${RED}❌ No VPC found!${NC}"
@@ -142,7 +145,7 @@ create_or_get_sg() {
     sg_id=$(aws ec2 describe-security-groups \
         --filters "Name=group-name,Values=$sg_name" \
         --query 'SecurityGroups[0].GroupId' \
-        --output text 2>/dev/null || echo "None")
+        --output text --region "$AWS_REGION" 2>/dev/null || echo "None")
     
     if [ "$sg_id" = "None" ] || [ "$sg_id" = "null" ]; then
         echo -e "${YELLOW}📝 Creating security group: $sg_name${NC}"
@@ -152,7 +155,7 @@ create_or_get_sg() {
             --description "$description" \
             --vpc-id "$VPC_ID" \
             --query 'GroupId' \
-            --output text)
+            --output text --region "$AWS_REGION")
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}✅ Created security group: $sg_id ($sg_name)${NC}"
@@ -161,7 +164,7 @@ create_or_get_sg() {
             aws ec2 create-tags \
                 --resources "$sg_id" \
                 --tags Key=Name,Value="$sg_name" Key=Project,Value="Jemya" Key=Purpose,Value="SSH-Access" \
-                2>/dev/null || true
+                --region "$AWS_REGION" 2>/dev/null || true
         else
             echo -e "${RED}❌ Failed to create security group: $sg_name${NC}"
             exit 1
@@ -184,7 +187,7 @@ clear_ssh_rules() {
     current_rules=$(aws ec2 describe-security-groups \
         --group-ids "$sg_id" \
         --query "SecurityGroups[0].IpPermissions[?FromPort==\`$SSH_PORT\` && ToPort==\`$SSH_PORT\`]" \
-        --output json)
+        --output json --region "$AWS_REGION")
     
     if [ "$current_rules" != "[]" ]; then
         echo "$current_rules" | jq -c '.[]' | while read -r rule; do
@@ -196,6 +199,7 @@ clear_ssh_rules() {
                         --protocol tcp \
                         --port "$SSH_PORT" \
                         --cidr "$cidr" \
+                        --region "$AWS_REGION" \
                         2>/dev/null || echo "   ⚠️  Failed to remove $cidr (might already be gone)"
                 done
             fi
@@ -222,6 +226,7 @@ add_ssh_rules() {
             --protocol tcp \
             --port "$SSH_PORT" \
             --cidr "$ip" \
+            --region "$AWS_REGION" \
             2>/dev/null && echo "   ✅ Added: $ip" || echo "   ⚠️  Failed/exists: $ip"
     done
 }
@@ -245,7 +250,11 @@ setup_github_sg() {
         "$SCRIPT_DIR/get-github-actions-ips.sh" --count > /dev/null
         
         if [ -f "$SCRIPT_DIR/github-actions-ipv4-ranges.txt" ]; then
-            readarray -t GITHUB_IPS < "$SCRIPT_DIR/github-actions-ipv4-ranges.txt"
+            # Use while loop for better compatibility instead of readarray
+            GITHUB_IPS=()
+            while IFS= read -r line; do
+                GITHUB_IPS+=("$line")
+            done < "$SCRIPT_DIR/github-actions-ipv4-ranges.txt"
             echo -e "${GREEN}✅ Loaded ${#GITHUB_IPS[@]} GitHub Actions IPv4 ranges${NC}"
         else
             echo -e "${RED}❌ Failed to load GitHub Actions IP ranges${NC}"
@@ -253,7 +262,11 @@ setup_github_sg() {
         fi
     else
         echo -e "${YELLOW}⚠️  Fetching GitHub Actions IPs manually...${NC}"
-        readarray -t GITHUB_IPS < <(curl -s -H "Accept: application/vnd.github+json" \
+        # Use while loop for better compatibility instead of readarray
+        GITHUB_IPS=()
+        while IFS= read -r line; do
+            GITHUB_IPS+=("$line")
+        done < <(curl -s -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/meta | \
             jq -r '.actions[]' | \
@@ -365,7 +378,7 @@ update_instance_security_groups() {
                   "Name=instance-state-name,Values=running,stopped" \
         --query 'Reservations[0].Instances[0].[InstanceId,Tags[?Key==`Name`].Value|[0],State.Name]' \
         --output text \
-        --region eu-west-1 2>/dev/null || echo "None	None	None")
+        --region "$AWS_REGION" 2>/dev/null || echo "None	None	None")
     
     if [ "$INSTANCE_INFO" = "None	None	None" ] || [ -z "$INSTANCE_INFO" ]; then
         echo -e "${YELLOW}⚠️  No Jemya EC2 instance found!${NC}"
@@ -392,7 +405,7 @@ update_instance_security_groups() {
     CURRENT_SGS=$(aws ec2 describe-instances \
         --instance-ids "$INSTANCE_ID" \
         --query 'Reservations[0].Instances[0].SecurityGroups[].{GroupId:GroupId,GroupName:GroupName}' \
-        --output json)
+        --output json --region "$AWS_REGION")
     
     echo "$CURRENT_SGS" | jq -r '.[] | "   🛡️  " + .GroupId + " (" + .GroupName + ")"'
     
@@ -456,7 +469,8 @@ update_instance_security_groups() {
     
     aws ec2 modify-instance-attribute \
         --instance-id "$INSTANCE_ID" \
-        --groups $SG_LIST
+        --groups $SG_LIST \
+        --region "$AWS_REGION"
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ Successfully updated security groups${NC}"
@@ -471,7 +485,7 @@ update_instance_security_groups() {
         UPDATED_SGS=$(aws ec2 describe-instances \
             --instance-ids "$INSTANCE_ID" \
             --query 'Reservations[0].Instances[0].SecurityGroups[].{GroupId:GroupId,GroupName:GroupName}' \
-            --output json)
+            --output json --region "$AWS_REGION")
         
         echo -e "${GREEN}✅ Updated security groups:${NC}"
         echo "$UPDATED_SGS" | jq -r '.[] | "   🛡️  " + .GroupId + " (" + .GroupName + ")"'
