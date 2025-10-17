@@ -1,6 +1,10 @@
 # Jemya
 Spotify Playlists Generator and Analyzer
 
+![Security](https://img.shields.io/badge/Security-Hardened_IAM-green?style=flat-square)
+![AWS](https://img.shields.io/badge/AWS-Least_Privilege-blue?style=flat-square)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-Separated_Workflows-orange?style=flat-square)
+
 ## 🚀 Quick Setup
 
 ### Local Development
