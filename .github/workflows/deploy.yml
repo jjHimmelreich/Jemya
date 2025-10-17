@@ -129,15 +129,20 @@ jobs:
         
         echo "✅ Found instance: $INSTANCE_ID ($STATE) at $PUBLIC_IP"
         
+        # Get current public IP of GitHub Actions runner
+        GITHUB_IP=$(curl -s https://api.ipify.org/ || echo "unknown")
+        echo "🔍 GitHub Actions Runner IP: $GITHUB_IP"
+        
         # Quick port connectivity check
         echo "🌐 Testing basic connectivity to $PUBLIC_IP:22..."
         if ! nc -zv "$PUBLIC_IP" 22 2>/dev/null; then
-          echo "❌ Cannot reach SSH port on target instance"
-          echo "💡 Deployment will likely fail - check security groups"
+          echo "❌ Cannot reach SSH port on target instance from IP $GITHUB_IP"
+          echo "💡 Connection failed from source IP: $GITHUB_IP to target IP: $PUBLIC_IP"
+          echo "💡 Deployment will likely fail - check security groups allow IP $GITHUB_IP"
           # Don't fail the gate, let the detailed check in deploy job handle it
           echo "⚠️ Proceeding anyway - detailed check will happen in deploy job"
         else
-          echo "✅ SSH port is accessible"
+          echo "✅ SSH port is accessible from $GITHUB_IP to $PUBLIC_IP"
         fi
 
   # Deploy to production environment
