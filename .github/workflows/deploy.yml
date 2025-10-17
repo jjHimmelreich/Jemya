@@ -24,7 +24,7 @@ on:
 
   # Automatic trigger after CI passes
   workflow_run:
-    workflows: ["🔄 CI/CD Pipeline"]
+    workflows: ["🔄 Continuous Integration"]
     types:
       - completed
     branches: [main]
