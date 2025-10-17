@@ -183,25 +183,23 @@ clear_ssh_rules() {
     
     echo -e "${YELLOW}🧹 Clearing existing SSH rules from $sg_name${NC}"
     
-    # Get current SSH rules
-    current_rules=$(aws ec2 describe-security-groups \
+    # Get current SSH rules using simpler approach
+    local existing_cidrs=$(aws ec2 describe-security-groups \
         --group-ids "$sg_id" \
-        --query "SecurityGroups[0].IpPermissions[?FromPort==\`$SSH_PORT\` && ToPort==\`$SSH_PORT\`]" \
-        --output json --region "$AWS_REGION")
+        --region "$AWS_REGION" \
+        --query "SecurityGroups[0].IpPermissions[?FromPort==\`$SSH_PORT\`].IpRanges[].CidrIp" \
+        --output text 2>/dev/null)
     
-    if [ "$current_rules" != "[]" ]; then
-        echo "$current_rules" | jq -c '.[]' | while read -r rule; do
-            ip_ranges=$(echo "$rule" | jq -c '.IpRanges')
-            if [ "$ip_ranges" != "[]" ]; then
-                echo "$rule" | jq -r '.IpRanges[].CidrIp' | while read -r cidr; do
-                    aws ec2 revoke-security-group-ingress \
-                        --group-id "$sg_id" \
-                        --protocol tcp \
-                        --port "$SSH_PORT" \
-                        --cidr "$cidr" \
-                        --region "$AWS_REGION" \
-                        2>/dev/null || echo "   ⚠️  Failed to remove $cidr (might already be gone)"
-                done
+    if [ -n "$existing_cidrs" ] && [ "$existing_cidrs" != "None" ]; then
+        echo "$existing_cidrs" | tr '\t' '\n' | while read -r cidr; do
+            if [ -n "$cidr" ] && [ "$cidr" != "None" ]; then
+                aws ec2 revoke-security-group-ingress \
+                    --group-id "$sg_id" \
+                    --protocol tcp \
+                    --port "$SSH_PORT" \
+                    --cidr "$cidr" \
+                    --region "$AWS_REGION" \
+                    2>/dev/null && echo "   🗑️  Removed: $cidr" || echo "   ⚠️  Failed to remove: $cidr"
             fi
         done
         echo -e "${GREEN}✅ Cleared SSH rules from $sg_name${NC}"
@@ -274,18 +272,99 @@ setup_github_sg() {
             sort)
     fi
     
-    # Limit GitHub IPs to avoid AWS limits (max 60 rules per security group)
+    # Print original statistics
+    echo -e "${CYAN}📊 Original GitHub Actions IP Statistics:${NC}"
+    echo "   • Total IP ranges: ${#GITHUB_IPS[@]}"
+    
+    # Analyze CIDR distribution
+    original_16=$(printf '%s\n' "${GITHUB_IPS[@]}" | grep -c '/16$' 2>/dev/null || echo 0)
+    original_17=$(printf '%s\n' "${GITHUB_IPS[@]}" | grep -c '/17$' 2>/dev/null || echo 0)
+    original_18=$(printf '%s\n' "${GITHUB_IPS[@]}" | grep -c '/18$' 2>/dev/null || echo 0)
+    original_other=$(( ${#GITHUB_IPS[@]} - original_16 - original_17 - original_18 ))
+    
+    echo "   • /16 blocks: $original_16"
+    echo "   • /17 blocks: $original_17" 
+    echo "   • /18 blocks: $original_18"
+    echo "   • Other blocks: $original_other"
+    echo ""
+    
+    # Optimize GitHub IPs using largest CIDR blocks for maximum coverage with minimum rules
+    echo -e "${BLUE}🎯 Optimizing IP ranges for maximum coverage...${NC}"
+    
+    # Create optimized list prioritizing largest CIDR blocks (/16, /17, /18)
+    OPTIMIZED_IPS=()
+    
+    # Add /16 blocks (65,536 IPs each) - highest priority
+    while IFS= read -r ip; do
+        if [[ "$ip" =~ /16$ ]]; then
+            OPTIMIZED_IPS+=("$ip")
+        fi
+    done < <(printf '%s\n' "${GITHUB_IPS[@]}")
+    
+    # Add /17 blocks (32,768 IPs each) - high priority
+    while IFS= read -r ip; do
+        if [[ "$ip" =~ /17$ ]]; then
+            OPTIMIZED_IPS+=("$ip")
+        fi
+    done < <(printf '%s\n' "${GITHUB_IPS[@]}")
+    
+    # Add /18 blocks (16,384 IPs each) - medium priority
+    while IFS= read -r ip; do
+        if [[ "$ip" =~ /18$ ]]; then
+            OPTIMIZED_IPS+=("$ip")
+        fi
+    done < <(printf '%s\n' "${GITHUB_IPS[@]}")
+    
+    # Limit to AWS security group limits (max ~60 rules)
     MAX_GITHUB_IPS=50
-    if [ ${#GITHUB_IPS[@]} -gt $MAX_GITHUB_IPS ]; then
-        echo -e "${YELLOW}⚠️  Limiting to $MAX_GITHUB_IPS GitHub Actions IPs (AWS security group limits)${NC}"
-        GITHUB_IPS=("${GITHUB_IPS[@]:0:$MAX_GITHUB_IPS}")
+    if [ ${#OPTIMIZED_IPS[@]} -gt $MAX_GITHUB_IPS ]; then
+        echo -e "${YELLOW}⚠️  Limiting to $MAX_GITHUB_IPS optimized GitHub Actions IPs (AWS security group limits)${NC}"
+        OPTIMIZED_IPS=("${OPTIMIZED_IPS[@]:0:$MAX_GITHUB_IPS}")
     fi
     
-    # Clear existing rules and add new ones
-    clear_ssh_rules "$GITHUB_SG_ID" "$GITHUB_SG_NAME"
-    add_ssh_rules "$GITHUB_SG_ID" "$GITHUB_SG_NAME" "GitHub Actions" "${GITHUB_IPS[@]}"
+    # Calculate coverage
+    ip_16_count=$(printf '%s\n' "${OPTIMIZED_IPS[@]}" | grep -c '/16$' 2>/dev/null || echo 0)
+    ip_17_count=$(printf '%s\n' "${OPTIMIZED_IPS[@]}" | grep -c '/17$' 2>/dev/null || echo 0)
+    ip_18_count=$(printf '%s\n' "${OPTIMIZED_IPS[@]}" | grep -c '/18$' 2>/dev/null || echo 0)
     
-    echo -e "${GREEN}✅ GitHub Actions security group configured with ${#GITHUB_IPS[@]} IP ranges${NC}"
+    # Ensure variables are numbers
+    ip_16_count=${ip_16_count:-0}
+    ip_17_count=${ip_17_count:-0}
+    ip_18_count=${ip_18_count:-0}
+    
+    total_ips=$(( (ip_16_count * 65536) + (ip_17_count * 32768) + (ip_18_count * 16384) ))
+    
+    echo -e "${GREEN}📊 Optimization Results:${NC}"
+    echo -e "${YELLOW}   BEFORE OPTIMIZATION:${NC}"
+    echo "   • Total ranges: ${#GITHUB_IPS[@]}"
+    echo "   • Rules needed: ${#GITHUB_IPS[@]}"
+    echo ""
+    echo -e "${GREEN}   AFTER OPTIMIZATION:${NC}"
+    echo "   • /16 blocks: $ip_16_count ($(( ip_16_count * 65536 )) IPs)"
+    echo "   • /17 blocks: $ip_17_count ($(( ip_17_count * 32768 )) IPs)"
+    echo "   • /18 blocks: $ip_18_count ($(( ip_18_count * 16384 )) IPs)"
+    echo "   • Total coverage: $total_ips IP addresses"
+    echo "   • Rules used: ${#OPTIMIZED_IPS[@]} out of $MAX_GITHUB_IPS"
+    echo ""
+    echo -e "${CYAN}   EFFICIENCY GAIN:${NC}"
+    if [ ${#GITHUB_IPS[@]} -gt 0 ] && [ ${#OPTIMIZED_IPS[@]} -gt 0 ]; then
+        reduction_percent=$(( (${#GITHUB_IPS[@]} - ${#OPTIMIZED_IPS[@]}) * 100 / ${#GITHUB_IPS[@]} ))
+        coverage_per_rule=$(( total_ips / ${#OPTIMIZED_IPS[@]} ))
+        echo "   • Rules reduction: ${#GITHUB_IPS[@]} → ${#OPTIMIZED_IPS[@]} (-$reduction_percent%)"
+        echo "   • Coverage per rule: $coverage_per_rule IPs/rule"
+    else
+        echo "   • Unable to calculate efficiency (empty arrays)"
+    fi
+    echo "   • /17 blocks: $ip_17_count ($(( ip_17_count * 32768 )) IPs)"
+    echo "   • /18 blocks: $ip_18_count ($(( ip_18_count * 16384 )) IPs)"
+    echo "   • Total coverage: $total_ips IP addresses"
+    echo "   • Rules used: ${#OPTIMIZED_IPS[@]} out of $MAX_GITHUB_IPS"
+    
+    # Clear existing rules and add optimized ones
+    clear_ssh_rules "$GITHUB_SG_ID" "$GITHUB_SG_NAME"
+    add_ssh_rules "$GITHUB_SG_ID" "$GITHUB_SG_NAME" "GitHub Actions" "${OPTIMIZED_IPS[@]}"
+    
+    echo -e "${GREEN}✅ GitHub Actions security group configured with ${#OPTIMIZED_IPS[@]} optimized IP ranges${NC}"
     echo -e "${BLUE}📋 Group ID: $GITHUB_SG_ID${NC}"
 }
 
