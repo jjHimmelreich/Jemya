@@ -284,14 +284,19 @@ jobs:
         fi
         echo "✅ SSH key is valid"
         
+        # Get current public IP of GitHub Actions runner
+        GITHUB_IP=$(curl -s https://api.ipify.org/ || echo "unknown")
+        echo "🔍 GitHub Actions Runner IP: $GITHUB_IP"
+        
         # Test network connectivity to SSH port
         echo "🌐 Testing network connectivity to $PUBLIC_IP:22..."
         if ! nc -zv "$PUBLIC_IP" 22 2>&1; then
-          echo "❌ Cannot connect to $PUBLIC_IP:22"
+          echo "❌ Cannot connect to $PUBLIC_IP:22 from IP $GITHUB_IP"
+          echo "💡 Connection failed from source IP: $GITHUB_IP"
           echo "💡 Possible issues:"
-          echo "   - Security groups don't allow GitHub Actions IPs"
+          echo "   - Security groups don't allow GitHub Actions IP $GITHUB_IP"
           echo "   - Instance is not running"
-          echo "   - Network ACLs blocking traffic"
+          echo "   - Network ACLs blocking traffic from $GITHUB_IP"
           echo "   - SSH service not running on instance"
           rm -f ec2_key.pem
           exit 1
@@ -303,9 +308,11 @@ jobs:
         SSH_OPTIONS="-i ec2_key.pem -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o BatchMode=yes"
         
         if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "echo 'SSH connection successful'" 2>/dev/null; then
-          echo "❌ SSH authentication failed"
+          echo "❌ SSH authentication failed from IP $GITHUB_IP to $PUBLIC_IP"
           echo ""
           echo "🔍 Debugging SSH connection..."
+          echo "   Source IP (GitHub Actions): $GITHUB_IP"
+          echo "   Target IP (EC2 Instance): $PUBLIC_IP"
           
           # Try verbose SSH for debugging
           echo "🔧 Attempting verbose SSH connection for diagnosis..."
@@ -315,16 +322,13 @@ jobs:
           echo "💡 Common SSH authentication failures:"
           echo "   1. Wrong SSH key in GitHub secrets"
           echo "   2. Key doesn't match the EC2 instance key pair"
-          echo "   3. GitHub Actions IP not in security groups"
+          echo "   3. GitHub Actions IP $GITHUB_IP not in security groups"
           echo "   4. Instance user is not 'ubuntu' (try 'ec2-user')"
           echo "   5. SSH service not running on instance"
           
           # Check security groups
           echo ""
           echo "🔍 Checking security groups for GitHub Actions IP ranges..."
-          
-          # Get current public IP of GitHub Actions runner
-          GITHUB_IP=$(curl -s https://api.ipify.org/ || echo "unknown")
           echo "   GitHub Actions Runner IP: $GITHUB_IP"
           
           # Check if this IP might be covered by security groups
@@ -345,6 +349,7 @@ jobs:
         # Check if docker is available and running
         if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "docker --version && docker ps" > /dev/null 2>&1; then
           echo "❌ Docker is not available or not running on target system"
+          echo "💡 Connection from $GITHUB_IP to $PUBLIC_IP succeeded, but Docker check failed"
           echo "💡 Docker is required for deployment"
           rm -f ec2_key.pem
           exit 1
@@ -354,6 +359,7 @@ jobs:
         # Check if AWS CLI is available for ECR access
         if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "aws --version" > /dev/null 2>&1; then
           echo "❌ AWS CLI is not available on target system"
+          echo "💡 Connection from $GITHUB_IP to $PUBLIC_IP succeeded, but AWS CLI check failed"
           echo "💡 AWS CLI is required for ECR access"
           rm -f ec2_key.pem
           exit 1
@@ -364,6 +370,7 @@ jobs:
         echo "🐳 Testing ECR access from target system..."
         if ! ssh $SSH_OPTIONS ubuntu@$PUBLIC_IP "aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_DEFAULT_REGION }}" > /dev/null 2>&1; then
           echo "❌ Target system cannot access ECR repository"
+          echo "💡 SSH connection from $GITHUB_IP to $PUBLIC_IP works, but ECR access failed"
           echo "💡 Check IAM role attached to EC2 instance"
           echo "💡 Required permissions: ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability, ecr:GetDownloadUrlForLayer, ecr:BatchGetImage"
           rm -f ec2_key.pem
@@ -373,6 +380,7 @@ jobs:
         
         echo ""
         echo "🎉 All SSH connectivity and deployment prerequisites verified!"
+        echo "   ✅ SSH connection: $GITHUB_IP → $PUBLIC_IP (successful)"
         echo "   ✅ SSH key authentication working"
         echo "   ✅ Network connectivity established" 
         echo "   ✅ Docker available and running"
