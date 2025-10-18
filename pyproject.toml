@@ -1,6 +1,6 @@
 # Bandit security scanning configuration
 [tool.bandit]
-exclude_dirs = ["tests", "venv", ".venv", "node_modules"]
+exclude_dirs = ["tests", "venv", ".venv"]
 skips = ["B101", "B601"]  # Skip assert_used and shell=True (common in tests)
 
 [tool.bandit.assert_used]

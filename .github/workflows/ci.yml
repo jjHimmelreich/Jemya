@@ -8,7 +8,6 @@ on:
 
 env:
   PYTHON_VERSION: '3.11'
-  NODE_VERSION: '18'
   ECR_REPOSITORY: jemya
   APP_NAME: jemya
   AWS_DEFAULT_REGION: eu-west-1

@@ -1,11 +1,8 @@
 __pycache__/*
 **/__pycache__/*
-**/node_modules/*
-node_modules/*
 conversations/*
 .DS_Store
 .cache
-package-lock.json
 try.py
 
 # Configuration with secrets (keep local only)

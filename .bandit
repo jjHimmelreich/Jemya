@@ -6,7 +6,6 @@ exclude_dirs:
   - ./ZZZ_archive_backend
   - __pycache__
   - .git
-  - node_modules
   - .pytest_cache
   - ./aws
   - ./tools

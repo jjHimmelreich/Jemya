@@ -72,10 +72,6 @@ deploy-*.sh
 !requirements.txt
 !aws-env-template.txt
 
-# Node.js (if any)
-node_modules/
-npm-debug.log*
-
 # Temporary files
 tmp/
 temp/
