@@ -1174,15 +1174,37 @@ echo "User data script completed" > /var/log/user-data.log
             # Deploy to EC2 using Session Manager
             self._print_info("Deploying to EC2 instance...")
             
-            # Stop and remove existing container (force if needed)
-            self._print_info("Cleaning up existing container...")
-            cleanup_cmd = "sudo docker stop jemya 2>/dev/null || true; sudo docker rm -f jemya 2>/dev/null || true"
+            # Stop and remove existing containers (both old and new naming schemes)
+            self._print_info("Cleaning up existing containers...")
+            cleanup_cmd = "sudo docker stop jemya jemya-app 2>/dev/null || true; sudo docker rm -f jemya jemya-app 2>/dev/null || true"
             self._run_ssm_command(instance_id, cleanup_cmd)
             
-            # Check if container name is available
-            self._print_info("Checking container status...")
-            check_cmd = "sudo docker ps -a --filter name=jemya --format 'table {{.Names}}\t{{.Status}}'"
-            self._run_ssm_command(instance_id, check_cmd)
+            # Wait for port to be freed and verify
+            self._print_info("Waiting for port 8501 to be freed...")
+            port_check_cmd = """
+            for i in {1..10}; do
+                if ! sudo netstat -tlnp 2>/dev/null | grep ':8501 ' && ! sudo ss -tlnp 2>/dev/null | grep ':8501 '; then
+                    echo "Port 8501 is available"
+                    break
+                else
+                    echo "Port 8501 still in use, waiting... (attempt $i/10)"
+                    sleep 2
+                fi
+                if [ $i -eq 10 ]; then
+                    echo "Port 8501 still in use after 20 seconds"
+                    sudo netstat -tlnp 2>/dev/null | grep ':8501 ' || sudo ss -tlnp 2>/dev/null | grep ':8501 ' || echo "No process found on port 8501"
+                    exit 1
+                fi
+            done
+            """
+            if not self._run_ssm_command(instance_id, port_check_cmd):
+                self._print_error("Port 8501 is still in use - deployment cannot continue")
+                return False
+            
+            # Verify no containers with our names exist
+            self._print_info("Verifying container cleanup...")
+            verify_cmd = "sudo docker ps -a --filter name=jemya"
+            self._run_ssm_command(instance_id, verify_cmd)
             
             # Login to ECR on the instance
             login_cmd = f"aws ecr get-login-password --region {self.region} | sudo docker login --username AWS --password-stdin {ecr_repo}"
@@ -1194,9 +1216,9 @@ echo "User data script completed" > /var/log/user-data.log
             if not self._run_ssm_command(instance_id, pull_cmd):
                 return False
             
-            # Run new container
+            # Run new container (expose on port 8501 for nginx proxy)
             self._print_info("Starting new container...")
-            run_cmd = f"sudo docker run -d --name jemya -p 80:5000 --restart unless-stopped {ecr_repo}:{image_tag}"
+            run_cmd = f"sudo docker run -d --name jemya -p 127.0.0.1:8501:8501 --restart unless-stopped {ecr_repo}:{image_tag}"
             if not self._run_ssm_command(instance_id, run_cmd):
                 self._print_error("Failed to start new container - checking for conflicts...")
                 # Try to see what's happening
@@ -1215,7 +1237,8 @@ echo "User data script completed" > /var/log/user-data.log
                 # Get public IP
                 public_ip = instance.get('PublicIpAddress')
                 if public_ip:
-                    self._print_success(f"Application available at: http://{public_ip}")
+                    self._print_success(f"Application available at: https://{public_ip}")
+                    self._print_info(f"HTTP requests will automatically redirect to HTTPS")
                 
                 return True
             else:
