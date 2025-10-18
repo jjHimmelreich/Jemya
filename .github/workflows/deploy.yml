@@ -315,9 +315,8 @@ jobs:
         export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
         export ENVIRONMENT="production"
         
-        # Deploy using aws_manager.py
-        cd aws
-        python3 aws_manager.py deploy
+        # Deploy using aws_manager.py with the pre-built image (skip build phase)
+        python3 aws/aws_manager.py deploy --image-tag "$IMAGE_TAG" --deploy-only
 
     - name: 🔍 Verify Deployment
       run: |

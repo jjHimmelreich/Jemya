@@ -1111,7 +1111,7 @@ echo "User data script completed" > /var/log/user-data.log
     
 
     
-    def deploy_application(self, force_rebuild: bool = False, image_tag: str = "latest"):
+    def deploy_application(self, force_rebuild: bool = False, image_tag: str = "latest", deploy_only: bool = False):
         """Deploy the application using Session Manager"""
         self._print_header("🚀 Deploying Jemya Application")
         
@@ -1134,38 +1134,42 @@ echo "User data script completed" > /var/log/user-data.log
         self._print_info(f"ECR repository: {ecr_repo}")
         
         try:
-            # Build and push Docker image
-            self._print_info("Building and pushing Docker image...")
-            
-            # Get current directory (should be project root)
-            current_dir = os.getcwd()
-            
-            # Get current git commit for tagging
-            try:
-                commit_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=current_dir).decode().strip()[:8]
-                print(f"📝 Using commit SHA for tagging: {commit_sha}")
-            except subprocess.CalledProcessError:
-                commit_sha = "local"
-                print("⚠️  Git not available, using 'local' tag")
-            
-            build_commands = [
-                f"cd {current_dir}",
-                f"aws ecr get-login-password --region {self.region} | docker login --username AWS --password-stdin {ecr_repo}",
-                f"docker build -t jemya .",
-                f"docker tag jemya:latest {ecr_repo}:{commit_sha}",
-                f"docker tag jemya:latest {ecr_repo}:latest",
-                f"docker push {ecr_repo}:{commit_sha}",
-                f"docker push {ecr_repo}:latest"
-            ]
-            
-            for cmd in build_commands:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                if result.returncode != 0:
-                    self._print_error(f"Build command failed: {cmd}")
-                    self._print_error(f"Error: {result.stderr}")
-                    return False
-            
-            self._print_success("Docker image built and pushed successfully")
+            # Skip build phase if deploy_only is True (for CI/CD where image is already built)
+            if not deploy_only:
+                # Build and push Docker image
+                self._print_info("Building and pushing Docker image...")
+                
+                # Get current directory (should be project root)
+                current_dir = os.getcwd()
+                
+                # Get current git commit for tagging
+                try:
+                    commit_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=current_dir).decode().strip()[:8]
+                    print(f"📝 Using commit SHA for tagging: {commit_sha}")
+                except subprocess.CalledProcessError:
+                    commit_sha = "local"
+                    print("⚠️  Git not available, using 'local' tag")
+                
+                build_commands = [
+                    f"cd {current_dir}",
+                    f"aws ecr get-login-password --region {self.region} | docker login --username AWS --password-stdin {ecr_repo}",
+                    f"docker build -t jemya .",
+                    f"docker tag jemya:latest {ecr_repo}:{commit_sha}",
+                    f"docker tag jemya:latest {ecr_repo}:latest",
+                    f"docker push {ecr_repo}:{commit_sha}",
+                    f"docker push {ecr_repo}:latest"
+                ]
+                
+                for cmd in build_commands:
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        self._print_error(f"Build command failed: {cmd}")
+                        self._print_error(f"Error: {result.stderr}")
+                        return False
+                
+                self._print_success("Docker image built and pushed successfully")
+            else:
+                self._print_info("Skipping build phase - deploying pre-built image from ECR")
             
             # Deploy to EC2 using Session Manager
             self._print_info("Deploying to EC2 instance...")
@@ -1366,6 +1370,8 @@ Examples:
                         help='Remove SSH access (only used with ssh command)')
     parser.add_argument('--image-tag', default='latest',
                         help='Docker image tag to deploy (default: latest)')
+    parser.add_argument('--deploy-only', action='store_true',
+                        help='Skip build phase and deploy pre-built image from ECR (for CI/CD)')
 
     
     args = parser.parse_args()
@@ -1381,7 +1387,7 @@ Examples:
     elif args.command == 'status':
         manager.show_status()
     elif args.command == 'deploy':
-        manager.deploy_application(image_tag=args.image_tag)
+        manager.deploy_application(image_tag=args.image_tag, deploy_only=args.deploy_only)
     elif args.command == 'ssh':
         if args.remove:
             manager.remove_admin_ssh_access()
