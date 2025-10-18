@@ -1174,37 +1174,57 @@ echo "User data script completed" > /var/log/user-data.log
             # Deploy to EC2 using Session Manager
             self._print_info("Deploying to EC2 instance...")
             
-            # Stop and remove existing containers (both old and new naming schemes)
-            self._print_info("Cleaning up existing containers...")
-            cleanup_cmd = "sudo docker stop jemya jemya-app 2>/dev/null || true; sudo docker rm -f jemya jemya-app 2>/dev/null || true"
-            self._run_ssm_command(instance_id, cleanup_cmd)
+            # Blue-Green Deployment: Find available port for new container
+            self._print_info("Implementing blue-green deployment...")
             
-            # Wait for port to be freed and verify
-            self._print_info("Waiting for port 8501 to be freed...")
-            port_check_cmd = """
-            for i in {1..10}; do
-                if ! sudo netstat -tlnp 2>/dev/null | grep ':8501 ' && ! sudo ss -tlnp 2>/dev/null | grep ':8501 '; then
-                    echo "Port 8501 is available"
-                    break
-                else
-                    echo "Port 8501 still in use, waiting... (attempt $i/10)"
-                    sleep 2
-                fi
-                if [ $i -eq 10 ]; then
-                    echo "Port 8501 still in use after 20 seconds"
-                    sudo netstat -tlnp 2>/dev/null | grep ':8501 ' || sudo ss -tlnp 2>/dev/null | grep ':8501 ' || echo "No process found on port 8501"
-                    exit 1
-                fi
-            done
+            # Define our two ports for blue-green deployment
+            blue_port = "8501"
+            green_port = "8502"
+            
+            # Check which ports are currently in use
+            port_check_cmd = f"""
+            echo "=== Port Status ==="
+            if sudo netstat -tlnp 2>/dev/null | grep ':{blue_port} ' || sudo ss -tlnp 2>/dev/null | grep ':{blue_port} '; then
+                echo "Port {blue_port}: IN USE"
+            else
+                echo "Port {blue_port}: FREE"
+            fi
+            
+            if sudo netstat -tlnp 2>/dev/null | grep ':{green_port} ' || sudo ss -tlnp 2>/dev/null | grep ':{green_port} '; then
+                echo "Port {green_port}: IN USE"
+            else
+                echo "Port {green_port}: FREE"
+            fi
             """
-            if not self._run_ssm_command(instance_id, port_check_cmd):
-                self._print_error("Port 8501 is still in use - deployment cannot continue")
-                return False
+            port_status = self._get_ssm_command_output(instance_id, port_check_cmd)
+            self._print_info("Checking port availability:")
+            print(port_status)
             
-            # Verify no containers with our names exist
-            self._print_info("Verifying container cleanup...")
-            verify_cmd = "sudo docker ps -a --filter name=jemya"
-            self._run_ssm_command(instance_id, verify_cmd)
+            # Determine which port to use for new container
+            if f"Port {blue_port}: FREE" in port_status:
+                new_port = blue_port
+                current_port = green_port
+                new_container = "jemya-blue"
+                old_container = "jemya-green" 
+            elif f"Port {green_port}: FREE" in port_status:
+                new_port = green_port
+                current_port = blue_port
+                new_container = "jemya-green"
+                old_container = "jemya-blue"
+            else:
+                self._print_error("Both ports 8501 and 8502 are in use - cannot perform blue-green deployment")
+                self._print_info("Falling back to stop-and-start deployment...")
+                # Force cleanup and use 8501
+                cleanup_cmd = "sudo docker stop jemya-blue jemya-green jemya jemya-app 2>/dev/null || true; sudo docker rm -f jemya-blue jemya-green jemya jemya-app 2>/dev/null || true"
+                self._run_ssm_command(instance_id, cleanup_cmd)
+                new_port = blue_port
+                current_port = None
+                new_container = "jemya-blue"
+                old_container = None
+            
+            self._print_info(f"Using port {new_port} for new container: {new_container}")
+            if old_container:
+                self._print_info(f"Will replace container: {old_container} (port {current_port})")
             
             # Login to ECR on the instance
             login_cmd = f"aws ecr get-login-password --region {self.region} | sudo docker login --username AWS --password-stdin {ecr_repo}"
@@ -1216,29 +1236,87 @@ echo "User data script completed" > /var/log/user-data.log
             if not self._run_ssm_command(instance_id, pull_cmd):
                 return False
             
-            # Run new container (expose on port 8501 for nginx proxy)
-            self._print_info("Starting new container...")
-            run_cmd = f"sudo docker run -d --name jemya -p 127.0.0.1:8501:8501 --restart unless-stopped {ecr_repo}:{image_tag}"
+            # Start new container on new port (Blue-Green deployment)
+            self._print_info(f"Starting new container '{new_container}' on port {new_port}...")
+            run_cmd = f"sudo docker run -d --name {new_container} -p 127.0.0.1:{new_port}:8501 --restart unless-stopped {ecr_repo}:{image_tag}"
             if not self._run_ssm_command(instance_id, run_cmd):
-                self._print_error("Failed to start new container - checking for conflicts...")
-                # Try to see what's happening
-                debug_cmd = "sudo docker ps -a --filter name=jemya; sudo docker logs jemya 2>/dev/null || echo 'No logs available'"
-                self._run_ssm_command(instance_id, debug_cmd)
+                self._print_error("Failed to start new container")
                 return False
             
-            # Wait a moment for container to start
-            time.sleep(10)
+            # Wait for container to start and perform health check
+            self._print_info("Waiting for new container to become healthy...")
+            health_check_cmd = f"""
+            for i in {{1..30}}; do
+                if sudo docker inspect {new_container} --format '{{{{.State.Health.Status}}}}' 2>/dev/null | grep -q healthy; then
+                    echo "Container is healthy"
+                    break
+                elif sudo docker inspect {new_container} --format '{{{{.State.Status}}}}' 2>/dev/null | grep -q running; then
+                    echo "Container is running (attempt $i/30)"
+                    sleep 2
+                else
+                    echo "Container failed to start properly"
+                    sudo docker logs {new_container} 2>/dev/null || echo "No logs available"
+                    exit 1
+                fi
+                if [ $i -eq 30 ]; then
+                    echo "Container health check timeout"
+                    exit 1
+                fi
+            done
+            """
+            if not self._run_ssm_command(instance_id, health_check_cmd):
+                self._print_error("New container failed health check - rolling back")
+                rollback_cmd = f"sudo docker stop {new_container} 2>/dev/null || true; sudo docker rm -f {new_container} 2>/dev/null || true"
+                self._run_ssm_command(instance_id, rollback_cmd)
+                return False
             
-            # Check container status
-            status_cmd = "sudo docker ps --filter name=jemya --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+            # Update nginx configuration to point to new port (Blue-Green switch)
+            self._print_info(f"Switching nginx to new container (port {new_port})...")
+            nginx_update_cmd = f"""
+            sudo cp /etc/nginx/conf.d/jemya.conf /etc/nginx/conf.d/jemya.conf.backup
+            sudo sed -i 's/proxy_pass http:\\/\\/localhost:[0-9]*/proxy_pass http:\\/\\/localhost:{new_port}/' /etc/nginx/conf.d/jemya.conf
+            sudo nginx -t && sudo systemctl reload nginx
+            """
+            if not self._run_ssm_command(instance_id, nginx_update_cmd):
+                self._print_error("Failed to update nginx configuration - rolling back")
+                # Restore nginx config
+                restore_cmd = "sudo cp /etc/nginx/conf.d/jemya.conf.backup /etc/nginx/conf.d/jemya.conf 2>/dev/null || true; sudo systemctl reload nginx 2>/dev/null || true"
+                self._run_ssm_command(instance_id, restore_cmd)
+                # Remove new container
+                rollback_cmd = f"sudo docker stop {new_container} 2>/dev/null || true; sudo docker rm -f {new_container} 2>/dev/null || true"
+                self._run_ssm_command(instance_id, rollback_cmd)
+                return False
+            
+            # Verify nginx switch was successful
+            self._print_info("Verifying nginx configuration...")
+            verify_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{new_port} || echo 'CURL_FAILED'"
+            if not self._run_ssm_command(instance_id, verify_cmd):
+                self._print_error("New container not responding - keeping old container active")
+                return False
+            
+            # Clean up old container (Blue-Green deployment complete)
+            if old_container:
+                self._print_info(f"Cleaning up old container '{old_container}'...")
+                cleanup_old_cmd = f"sudo docker stop {old_container} 2>/dev/null || true; sudo docker rm -f {old_container} 2>/dev/null || true"
+                self._run_ssm_command(instance_id, cleanup_old_cmd)
+            else:
+                self._print_info("No old container to clean up (fresh deployment)")
+            
+            # Also clean up legacy containers
+            legacy_cleanup_cmd = "sudo docker stop jemya jemya-app 2>/dev/null || true; sudo docker rm -f jemya jemya-app 2>/dev/null || true"
+            self._run_ssm_command(instance_id, legacy_cleanup_cmd)
+            
+            # Final status check
+            status_cmd = f"sudo docker ps --filter name={new_container} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}'"
             if self._run_ssm_command(instance_id, status_cmd):
-                self._print_success("Application deployed successfully!")
+                self._print_success("Blue-Green deployment completed successfully!")
                 
                 # Get public IP
                 public_ip = instance.get('PublicIpAddress')
                 if public_ip:
                     self._print_success(f"Application available at: https://{public_ip}")
                     self._print_info(f"HTTP requests will automatically redirect to HTTPS")
+                    self._print_info(f"Active container: {new_container} on port {new_port}")
                 
                 return True
             else:
@@ -1289,6 +1367,39 @@ echo "User data script completed" > /var/log/user-data.log
         except Exception as e:
             self._print_error(f"Failed to run SSM command: {e}")
             return False
+    
+    def _get_ssm_command_output(self, instance_id: str, command: str) -> str:
+        """Get output from SSM command without printing"""
+        try:
+            response = self.ssm_client.send_command(
+                InstanceIds=[instance_id],
+                DocumentName="AWS-RunShellScript",
+                Parameters={'commands': [command]}
+            )
+            
+            command_id = response['Command']['CommandId']
+            
+            # Wait for command to complete
+            waiter = self.ssm_client.get_waiter('command_executed')
+            waiter.wait(
+                CommandId=command_id,
+                InstanceId=instance_id,
+                WaiterConfig={'Delay': 2, 'MaxAttempts': 30}
+            )
+            
+            # Get command result
+            result = self.ssm_client.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=instance_id
+            )
+            
+            if result['Status'] == 'Success':
+                return result.get('StandardOutputContent', '')
+            else:
+                return ''
+                
+        except Exception as e:
+            return ''
     
     def _get_ecr_repository_uri(self) -> str:
         """Get ECR repository URI"""
