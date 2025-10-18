@@ -34,7 +34,8 @@
       ],
       "Resource": [
         "arn:aws:ec2:eu-west-1:431969329260:instance/*",
-        "arn:aws:ssm:*::document/AWS-StartSSHSession"
+        "arn:aws:ssm:*::document/AWS-StartSSHSession",
+        "arn:aws:ssm:*::document/AWS-RunShellScript"
       ],
       "Condition": {
         "StringEquals": {
