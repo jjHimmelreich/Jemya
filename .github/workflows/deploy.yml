@@ -166,7 +166,8 @@ jobs:
         
         echo "🔍 Command result: $RESULT"
         
-        if echo "$RESULT" | grep -q "Success.*Session Manager connectivity test"; then
+        # Check if both "Session Manager connectivity test" and "Success" are present
+        if echo "$RESULT" | grep -q "Session Manager connectivity test" && echo "$RESULT" | grep -q "Success"; then
           echo "✅ Session Manager connectivity confirmed"
         else
           echo "❌ Session Manager connectivity failed"
