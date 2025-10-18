@@ -1174,13 +1174,15 @@ echo "User data script completed" > /var/log/user-data.log
             # Deploy to EC2 using Session Manager
             self._print_info("Deploying to EC2 instance...")
             
-            # Stop existing container
-            stop_cmd = "sudo docker stop jemya || true"
-            self._run_ssm_command(instance_id, stop_cmd)
+            # Stop and remove existing container (force if needed)
+            self._print_info("Cleaning up existing container...")
+            cleanup_cmd = "sudo docker stop jemya 2>/dev/null || true; sudo docker rm -f jemya 2>/dev/null || true"
+            self._run_ssm_command(instance_id, cleanup_cmd)
             
-            # Remove existing container
-            remove_cmd = "sudo docker rm jemya || true"
-            self._run_ssm_command(instance_id, remove_cmd)
+            # Check if container name is available
+            self._print_info("Checking container status...")
+            check_cmd = "sudo docker ps -a --filter name=jemya --format 'table {{.Names}}\t{{.Status}}'"
+            self._run_ssm_command(instance_id, check_cmd)
             
             # Login to ECR on the instance
             login_cmd = f"aws ecr get-login-password --region {self.region} | sudo docker login --username AWS --password-stdin {ecr_repo}"
@@ -1193,8 +1195,13 @@ echo "User data script completed" > /var/log/user-data.log
                 return False
             
             # Run new container
+            self._print_info("Starting new container...")
             run_cmd = f"sudo docker run -d --name jemya -p 80:5000 --restart unless-stopped {ecr_repo}:{image_tag}"
             if not self._run_ssm_command(instance_id, run_cmd):
+                self._print_error("Failed to start new container - checking for conflicts...")
+                # Try to see what's happening
+                debug_cmd = "sudo docker ps -a --filter name=jemya; sudo docker logs jemya 2>/dev/null || echo 'No logs available'"
+                self._run_ssm_command(instance_id, debug_cmd)
                 return False
             
             # Wait a moment for container to start
