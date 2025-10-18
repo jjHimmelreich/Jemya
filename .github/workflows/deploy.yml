@@ -133,12 +133,28 @@ jobs:
         
         # Test Session Manager connectivity
         echo "🔧 Testing Session Manager connectivity..."
+        
+        # Debug: Show current AWS identity
+        echo "🔍 Current AWS identity:"
+        aws sts get-caller-identity || echo "❌ Failed to get caller identity"
+        
+        # Try to send command with detailed error handling
+        echo "🔍 Attempting to send SSM command..."
         COMMAND_ID=$(aws ssm send-command \
           --instance-ids "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
           --parameters 'commands=["echo Session Manager connectivity test"]' \
           --query 'Command.CommandId' \
-          --output text)
+          --output text 2>&1)
+        
+        if [[ $COMMAND_ID == *"Error"* ]] || [[ $COMMAND_ID == *"error"* ]]; then
+          echo "❌ Failed to send SSM command:"
+          echo "$COMMAND_ID"
+          echo "💡 This indicates a permissions issue with the GitHub Actions user"
+          exit 1
+        fi
+        
+        echo "✅ Command sent successfully: $COMMAND_ID"
         
         # Wait for command completion
         sleep 5
@@ -146,12 +162,15 @@ jobs:
           --command-id "$COMMAND_ID" \
           --instance-id "$INSTANCE_ID" \
           --query '{Status:Status,Output:StandardOutputContent}' \
-          --output text)
+          --output text 2>&1)
+        
+        echo "🔍 Command result: $RESULT"
         
         if echo "$RESULT" | grep -q "Success.*Session Manager connectivity test"; then
           echo "✅ Session Manager connectivity confirmed"
         else
           echo "❌ Session Manager connectivity failed"
+          echo "Result details: $RESULT"
           echo "💡 Check that:"
           echo "   - Instance has SSM agent installed and running"
           echo "   - Instance has proper IAM role for Session Manager"
