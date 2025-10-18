@@ -1238,7 +1238,30 @@ echo "User data script completed" > /var/log/user-data.log
             
             # Start new container on new port (Blue-Green deployment)
             self._print_info(f"Starting new container '{new_container}' on port {new_port}...")
-            run_cmd = f"sudo docker run -d --name {new_container} -p 127.0.0.1:{new_port}:8501 --restart unless-stopped {ecr_repo}:{image_tag}"
+            
+            # Collect environment variables for the application
+            env_vars = []
+            required_env_vars = [
+                'SPOTIFY_CLIENT_ID',
+                'SPOTIFY_CLIENT_SECRET', 
+                'SPOTIFY_REDIRECT_URI',
+                'OPENAI_API_KEY',
+                'ENVIRONMENT'
+            ]
+            
+            for env_var in required_env_vars:
+                value = os.environ.get(env_var)
+                if value:
+                    # Properly escape environment variable values for shell
+                    escaped_value = value.replace("'", "'\"'\"'")  # Escape single quotes
+                    env_vars.append(f"-e {env_var}='{escaped_value}'")
+                    self._print_info(f"✓ Found environment variable: {env_var}")
+                else:
+                    self._print_warning(f"⚠️ Environment variable {env_var} not found - application may fail to start")
+            
+            env_args = " ".join(env_vars)
+            run_cmd = f"sudo docker run -d --name {new_container} -p 127.0.0.1:{new_port}:8501 {env_args} --restart unless-stopped {ecr_repo}:{image_tag}"
+            
             if not self._run_ssm_command(instance_id, run_cmd):
                 self._print_error("Failed to start new container")
                 return False
