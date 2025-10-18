@@ -21,6 +21,42 @@
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "SessionManager",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:StartSession",
+        "ssm:TerminateSession",
+        "ssm:ResumeSession",
+        "ssm:DescribeSessions",
+        "ssm:GetConnectionStatus"
+      ],
+      "Resource": [
+        "arn:aws:ec2:eu-west-1:431969329260:instance/*",
+        "arn:aws:ssm:*::document/AWS-StartSSHSession"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ssm:resourceTag/Name": "jemya-instance"
+        }
+      }
+    },
+    {
+      "Sid": "SessionManagerDocuments",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeInstanceInformation",
+        "ssm:SendCommand",
+        "ssm:ListCommandInvocations",
+        "ssm:GetCommandInvocation"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-1"
+        }
+      }
     }
   ]
 }
