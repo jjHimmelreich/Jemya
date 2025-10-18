@@ -1111,7 +1111,7 @@ echo "User data script completed" > /var/log/user-data.log
     
 
     
-    def deploy_application(self, force_rebuild: bool = False):
+    def deploy_application(self, force_rebuild: bool = False, image_tag: str = "latest"):
         """Deploy the application using Session Manager"""
         self._print_header("🚀 Deploying Jemya Application")
         
@@ -1123,6 +1123,7 @@ echo "User data script completed" > /var/log/user-data.log
             
         instance_id = instance['InstanceId']
         self._print_info(f"Target instance: {instance_id}")
+        self._print_info(f"Image tag: {image_tag}")
         
         # Get ECR repository URI
         ecr_repo = self._get_ecr_repository_uri()
@@ -1139,11 +1140,21 @@ echo "User data script completed" > /var/log/user-data.log
             # Get current directory (should be project root)
             current_dir = os.getcwd()
             
+            # Get current git commit for tagging
+            try:
+                commit_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=current_dir).decode().strip()[:8]
+                print(f"📝 Using commit SHA for tagging: {commit_sha}")
+            except subprocess.CalledProcessError:
+                commit_sha = "local"
+                print("⚠️  Git not available, using 'local' tag")
+            
             build_commands = [
                 f"cd {current_dir}",
                 f"aws ecr get-login-password --region {self.region} | docker login --username AWS --password-stdin {ecr_repo}",
                 f"docker build -t jemya .",
+                f"docker tag jemya:latest {ecr_repo}:{commit_sha}",
                 f"docker tag jemya:latest {ecr_repo}:latest",
+                f"docker push {ecr_repo}:{commit_sha}",
                 f"docker push {ecr_repo}:latest"
             ]
             
@@ -1173,12 +1184,12 @@ echo "User data script completed" > /var/log/user-data.log
                 return False
             
             # Pull latest image
-            pull_cmd = f"sudo docker pull {ecr_repo}:latest"
+            pull_cmd = f"sudo docker pull {ecr_repo}:{image_tag}"
             if not self._run_ssm_command(instance_id, pull_cmd):
                 return False
             
             # Run new container
-            run_cmd = f"sudo docker run -d --name jemya -p 80:5000 --restart unless-stopped {ecr_repo}:latest"
+            run_cmd = f"sudo docker run -d --name jemya -p 80:5000 --restart unless-stopped {ecr_repo}:{image_tag}"
             if not self._run_ssm_command(instance_id, run_cmd):
                 return False
             
@@ -1336,11 +1347,12 @@ Commands:
   ssh         Manage admin SSH access (add/update current IP)
   
 Examples:
-  python3 aws_manager.py setup              # Complete setup
-  python3 aws_manager.py cleanup --auto     # Automated cleanup
-  python3 aws_manager.py status             # Show current status
-  python3 aws_manager.py deploy             # Deploy application
-  python3 aws_manager.py ssh                # Add/update SSH access for current IP
+  python3 aws_manager.py setup                          # Complete setup
+  python3 aws_manager.py cleanup --auto                 # Automated cleanup
+  python3 aws_manager.py status                         # Show current status
+  python3 aws_manager.py deploy                         # Deploy latest image
+  python3 aws_manager.py deploy --image-tag 1a2b3c4d   # Deploy specific commit
+  python3 aws_manager.py ssh                            # Add/update SSH access for current IP
         """
     )
     
@@ -1352,6 +1364,8 @@ Examples:
                         help='Run in automatic mode (no interactive prompts)')
     parser.add_argument('--remove', action='store_true',
                         help='Remove SSH access (only used with ssh command)')
+    parser.add_argument('--image-tag', default='latest',
+                        help='Docker image tag to deploy (default: latest)')
 
     
     args = parser.parse_args()
@@ -1367,7 +1381,7 @@ Examples:
     elif args.command == 'status':
         manager.show_status()
     elif args.command == 'deploy':
-        manager.deploy_application()
+        manager.deploy_application(image_tag=args.image_tag)
     elif args.command == 'ssh':
         if args.remove:
             manager.remove_admin_ssh_access()

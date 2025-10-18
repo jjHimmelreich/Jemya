@@ -83,7 +83,9 @@ jobs:
             echo "✅ CI workflow passed - proceeding with deployment"
             SHOULD_DEPLOY="true"
             DEPLOY_REASON="Automatic deployment after successful CI"
-            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+            # Use 'latest' since CI just pushed it as the latest successful build
+            IMAGE_TAG="latest"
+            echo "🏷️ Using 'latest' tag (matches CI build: ${{ github.event.workflow_run.head_sha }})"
           else
             echo "❌ CI workflow failed - deployment cancelled"
             DEPLOY_REASON="Deployment cancelled - CI workflow failed: ${{ github.event.workflow_run.conclusion }}"
@@ -487,6 +489,7 @@ jobs:
         if [ "${{ needs.deploy.result }}" = "success" ]; then
           echo "🎉 Deployment successful!"
           echo "🌐 Application URL: https://${{ needs.deploy.outputs.public_ip || 'check-ec2-instance' }}"
+          echo "🏷️ Deployed image: ${{ needs.deployment-gate.outputs.image_tag }}"
         else
           echo "❌ Deployment failed!"
           echo "🔍 Check the deployment logs above for details"
