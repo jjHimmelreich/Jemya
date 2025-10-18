@@ -1249,7 +1249,11 @@ echo "User data script completed" > /var/log/user-data.log
                     print(result['StandardOutputContent'])
                 return True
             else:
-                self._print_error(f"Command failed: {result.get('StandardErrorContent', 'Unknown error')}")
+                self._print_error(f"Command failed with status: {result['Status']}")
+                if result.get('StandardErrorContent'):
+                    self._print_error(f"Error output: {result['StandardErrorContent']}")
+                if result.get('StandardOutputContent'):
+                    self._print_error(f"Standard output: {result['StandardOutputContent']}")
                 return False
                 
         except Exception as e:
@@ -1387,7 +1391,9 @@ Examples:
     elif args.command == 'status':
         manager.show_status()
     elif args.command == 'deploy':
-        manager.deploy_application(image_tag=args.image_tag, deploy_only=args.deploy_only)
+        success = manager.deploy_application(image_tag=args.image_tag, deploy_only=args.deploy_only)
+        if not success:
+            sys.exit(1)
     elif args.command == 'ssh':
         if args.remove:
             manager.remove_admin_ssh_access()

@@ -1,10 +1,12 @@
 name: 🔄 Continuous Integration
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
+  # Temporarily disabled
+  # push:
+  #   branches: [ main, develop ]
+  # pull_request:
+  #   branches: [ main ]
+  workflow_dispatch:  # Allow manual triggers only
 
 env:
   PYTHON_VERSION: '3.11'

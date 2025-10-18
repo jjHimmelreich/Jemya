@@ -316,7 +316,13 @@ jobs:
         export ENVIRONMENT="production"
         
         # Deploy using aws_manager.py with the pre-built image (skip build phase)
-        python3 aws/aws_manager.py deploy --image-tag "$IMAGE_TAG" --deploy-only
+        if ! python3 aws/aws_manager.py deploy --image-tag "$IMAGE_TAG" --deploy-only; then
+          echo "❌ Deployment failed!"
+          echo "💡 Check the deployment logs above for details"
+          exit 1
+        fi
+        
+        echo "✅ Deployment completed successfully"
 
     - name: 🔍 Verify Deployment
       run: |
