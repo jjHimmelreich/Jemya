@@ -329,38 +329,62 @@ jobs:
         PUBLIC_IP="${{ steps.discover-ec2.outputs.public_ip }}"
         INSTANCE_ID="${{ steps.discover-ec2.outputs.instance_id }}"
         
-        echo "🔍 Verifying Session Manager deployment..."
+        echo "🔍 Verifying blue-green deployment..."
         VERIFICATION_FAILED=false
         
-        # Test container health via Session Manager
-        echo "🔍 Testing container status..."
-        COMMAND_ID=$(aws ssm send-command \
+        # Find active container (blue-green deployment)
+        echo "🔍 Finding active container..."
+        ACTIVE_CONTAINER_CMD=$(aws ssm send-command \
           --instance-ids "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
-          --parameters 'commands=["docker ps --filter name=jemya-app --format \"{{.Names}}: {{.Status}}\""]' \
+          --parameters 'commands=["docker ps --filter name=jemya- --format \"{{.Names}}: {{.Status}}\" | grep Up || echo \"No active jemya container found\""]' \
           --query 'Command.CommandId' \
           --output text)
         
-        sleep 5
-        CONTAINER_STATUS=$(aws ssm get-command-invocation \
-          --command-id "$COMMAND_ID" \
+        sleep 3
+        ACTIVE_CONTAINER=$(aws ssm get-command-invocation \
+          --command-id "$ACTIVE_CONTAINER_CMD" \
           --instance-id "$INSTANCE_ID" \
           --query 'StandardOutputContent' \
           --output text 2>/dev/null || echo "FAILED")
         
-        if echo "$CONTAINER_STATUS" | grep -q "Up"; then
-          echo "✅ Container is running: $CONTAINER_STATUS"
+        if echo "$ACTIVE_CONTAINER" | grep -q "jemya-.*: Up"; then
+          CONTAINER_NAME=$(echo "$ACTIVE_CONTAINER" | grep -o "jemya-[^:]*")
+          echo "✅ Active container found: $ACTIVE_CONTAINER"
         else
-          echo "❌ Container is not running properly: $CONTAINER_STATUS"
+          echo "❌ No active jemya container found: $ACTIVE_CONTAINER"
           VERIFICATION_FAILED=true
         fi
         
-        # Test application health (internal port)
-        echo "🔍 Testing application health..."
+        # Get nginx configuration to find active port
+        echo "🔍 Checking nginx proxy configuration..."
+        NGINX_PORT_CMD=$(aws ssm send-command \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["sudo grep -o \"proxy_pass http://localhost:[0-9]*\" /etc/nginx/conf.d/jemya.conf | grep -o \"[0-9]*\" || echo \"No nginx config found\""]' \
+          --query 'Command.CommandId' \
+          --output text)
+        
+        sleep 3
+        NGINX_PORT=$(aws ssm get-command-invocation \
+          --command-id "$NGINX_PORT_CMD" \
+          --instance-id "$INSTANCE_ID" \
+          --query 'StandardOutputContent' \
+          --output text 2>/dev/null || echo "FAILED")
+        
+        if [[ "$NGINX_PORT" =~ ^[0-9]+$ ]]; then
+          echo "✅ Nginx configured to proxy to port: $NGINX_PORT"
+        else
+          echo "⚠️  Nginx configuration not found or invalid: $NGINX_PORT"
+          NGINX_PORT="8501"  # Fallback to default
+        fi
+        
+        # Test application health on active port
+        echo "🔍 Testing application health on port $NGINX_PORT..."
         HEALTH_COMMAND_ID=$(aws ssm send-command \
           --instance-ids "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
-          --parameters 'commands=["curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8501 && echo \" - Application responding\" || echo \" - Application not responding\""]' \
+          --parameters "commands=[\"curl -s -o /dev/null -w '%{http_code}' http://localhost:$NGINX_PORT && echo ' - Application responding on port $NGINX_PORT' || echo ' - Application not responding on port $NGINX_PORT'\"]" \
           --query 'Command.CommandId' \
           --output text)
         
@@ -378,13 +402,45 @@ jobs:
           VERIFICATION_FAILED=true
         fi
         
-        # Test HTTPS access (if nginx is configured)
-        echo "🔍 Testing public HTTPS access..."
-        if curl -f -k --connect-timeout 10 --max-time 30 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
-          echo "✅ HTTPS access is working (nginx configured)"
+        # Test nginx proxy and public access
+        echo "🔍 Testing nginx proxy..."
+        NGINX_TEST_CMD=$(aws ssm send-command \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["if sudo nginx -t 2>/dev/null && systemctl is-active nginx >/dev/null 2>&1; then echo \"Nginx: ACTIVE\"; else echo \"Nginx: INACTIVE\"; fi"]' \
+          --query 'Command.CommandId' \
+          --output text)
+        
+        sleep 3
+        NGINX_STATUS=$(aws ssm get-command-invocation \
+          --command-id "$NGINX_TEST_CMD" \
+          --instance-id "$INSTANCE_ID" \
+          --query 'StandardOutputContent' \
+          --output text 2>/dev/null || echo "FAILED")
+        
+        if echo "$NGINX_STATUS" | grep -q "ACTIVE"; then
+          echo "✅ Nginx is active and configured"
+          
+          # Test HTTPS access through nginx
+          echo "🔍 Testing public HTTPS access via nginx..."
+          if curl -f -k --connect-timeout 10 --max-time 30 "https://$PUBLIC_IP/" > /dev/null 2>&1; then
+            echo "✅ HTTPS access is working (nginx → container port $NGINX_PORT)"
+          else
+            echo "⚠️  HTTPS not accessible - nginx may not be properly configured"
+            VERIFICATION_FAILED=true
+          fi
+          
+          # Test HTTP redirect
+          echo "🔍 Testing HTTP to HTTPS redirect..."
+          HTTP_RESULT=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://$PUBLIC_IP/" 2>/dev/null || echo "000")
+          if [[ "$HTTP_RESULT" =~ ^30[0-9]$ ]]; then
+            echo "✅ HTTP redirects to HTTPS (status: $HTTP_RESULT)"
+          else
+            echo "⚠️  HTTP redirect not working (status: $HTTP_RESULT)"
+          fi
         else
-          echo "⚠️  HTTPS not accessible - nginx may not be configured (this is OK for Session Manager deployment)"
-          echo "💡 Application is accessible internally on port 8501"
+          echo "⚠️  Nginx is not active: $NGINX_STATUS"
+          echo "💡 Application accessible directly on port $NGINX_PORT (no reverse proxy)"
         fi
         
         # Fail the workflow if critical verifications failed
@@ -400,10 +456,14 @@ jobs:
         fi
         
         echo ""
-        echo "🎉 Session Manager deployment verification passed!"
-        echo "📦 Container is running and application is healthy"
-        echo "🔗 Internal access: http://localhost:8501 (on EC2)"
-        echo "🌐 Public access: https://$PUBLIC_IP (if nginx configured)"
+        echo "🎉 Blue-green deployment verification passed!"
+        echo "📦 Active container: ${CONTAINER_NAME:-unknown} (healthy)"
+        echo "🔗 Internal access: http://localhost:$NGINX_PORT (on EC2)"
+        if echo "$NGINX_STATUS" | grep -q "ACTIVE"; then
+          echo "🌐 Public access: https://$PUBLIC_IP (via nginx reverse proxy)"
+        else
+          echo "🌐 Direct access: http://$PUBLIC_IP:$NGINX_PORT (no reverse proxy)"
+        fi
 
     - name: 📊 Deployment Summary
       run: |
@@ -421,9 +481,9 @@ jobs:
         echo "### 💻 Infrastructure Details" >> $GITHUB_STEP_SUMMARY
         echo "🆔 **EC2 Instance**: \`${{ steps.discover-ec2.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
         echo "🌐 **Public IP**: \`${{ steps.discover-ec2.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "📦 **Container**: \`jemya-app\` (internal port 8501)" >> $GITHUB_STEP_SUMMARY
-        echo "� **Deployment Method**: AWS Session Manager (no SSH required)" >> $GITHUB_STEP_SUMMARY
-        echo "🔒 **SSL**: Via nginx reverse proxy (if configured)" >> $GITHUB_STEP_SUMMARY
+        echo "📦 **Deployment**: Blue-Green (jemya-blue/jemya-green containers)" >> $GITHUB_STEP_SUMMARY
+        echo "🔄 **Method**: AWS Session Manager (SSH-less deployment)" >> $GITHUB_STEP_SUMMARY
+        echo "🔒 **SSL**: Via nginx reverse proxy with auto-redirect" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "🎉 **Deployment completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')**"
 
