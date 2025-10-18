@@ -16,7 +16,6 @@ Usage:
 
 import argparse
 import boto3
-import ipaddress
 import json
 import logging
 import os
@@ -58,6 +57,7 @@ class JemyaAWSManager:
             self.ecr_client = boto3.client('ecr', region_name=region)
             self.iam_client = boto3.client('iam')
             self.sts_client = boto3.client('sts')
+            self.ssm_client = boto3.client('ssm', region_name=region)
         except NoCredentialsError:
             self._print_error("AWS credentials not configured")
             sys.exit(1)
@@ -70,10 +70,8 @@ class JemyaAWSManager:
             sys.exit(1)
         
         # Security group names
-        self.github_sg_name = "jemya-github-sg"
-        self.admin_sg_name = "jemya-admin-sg"
         self.web_sg_name = "jemya-web-traffic"
-        self.legacy_sg_name = "jemya-sg"
+        self.admin_sg_name = "jemya-admin-ssh"
         
         # Get VPC ID
         self.vpc_id = self._get_vpc_id()
@@ -214,7 +212,8 @@ class JemyaAWSManager:
         policy_files = {
             'deployment': 'github-actions-user-aws-deployment-policy.json',
             'ecr': 'github-actions-user-ecr-policy.json',
-            'ec2_role': 'ec2-instance-role-policy.json'
+            'ec2_role': 'ec2-instance-role-policy.json',
+            'session_manager': 'session-manager-policy.json'
         }
         
         filename = policy_files.get(policy_type)
@@ -252,10 +251,11 @@ class JemyaAWSManager:
             )
             self._print_success(f"Created IAM user: {username}")
         
-        # Setup policies
+        # Setup policies (including Session Manager for SSH-less deployment)
         policies = [
             ('DeploymentPolicy', self._get_policy_document('deployment')),
-            ('ECRPolicy', self._get_policy_document('ecr'))
+            ('ECRPolicy', self._get_policy_document('ecr')),
+            ('SessionManagerPolicy', self._get_policy_document('session_manager'))
         ]
         
         for policy_name, policy_doc in policies:
@@ -352,6 +352,104 @@ class JemyaAWSManager:
     
     # ========== EC2 MANAGEMENT ==========
     
+    def setup_ec2_iam_role(self) -> str:
+        """Setup IAM role for EC2 instance with Session Manager support"""
+        role_name = f"{self.project_name}-ec2-role"
+        
+        # Trust policy for EC2
+        trust_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                }
+            ]
+        }
+        
+        try:
+            # Check if role exists
+            self.iam_client.get_role(RoleName=role_name)
+            self._print_success(f"EC2 IAM role exists: {role_name}")
+        except self.iam_client.exceptions.NoSuchEntityException:
+            # Create role
+            self._print_info(f"Creating EC2 IAM role: {role_name}")
+            self.iam_client.create_role(
+                RoleName=role_name,
+                AssumeRolePolicyDocument=json.dumps(trust_policy),
+                Tags=[
+                    {'Key': 'Project', 'Value': self.project_name},
+                    {'Key': 'Purpose', 'Value': 'EC2-Instance-Role'}
+                ]
+            )
+            self._print_success(f"Created EC2 IAM role: {role_name}")
+        
+        # Attach Session Manager policy (AWS managed)
+        ssm_policy_arn = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        try:
+            self.iam_client.attach_role_policy(
+                RoleName=role_name,
+                PolicyArn=ssm_policy_arn
+            )
+            self._print_success("Attached Session Manager policy to EC2 role")
+        except self.iam_client.exceptions.ClientError as e:
+            if 'already attached' in str(e):
+                self._print_success("Session Manager policy already attached")
+            else:
+                raise
+        
+        # Attach custom EC2 policies if they exist
+        try:
+            custom_policy = self._get_policy_document('ec2_role')
+            custom_policy_name = f"{self.project_name}-EC2Policy"
+            policy_arn = f"arn:aws:iam::{self.account_id}:policy/{custom_policy_name}"
+            
+            try:
+                self.iam_client.get_policy(PolicyArn=policy_arn)
+                self.iam_client.attach_role_policy(
+                    RoleName=role_name,
+                    PolicyArn=policy_arn
+                )
+                self._print_success(f"Attached custom policy: {custom_policy_name}")
+            except self.iam_client.exceptions.NoSuchEntityException:
+                # Create and attach custom policy
+                self.iam_client.create_policy(
+                    PolicyName=custom_policy_name,
+                    PolicyDocument=json.dumps(custom_policy),
+                    Description=f"Custom policy for {self.project_name} EC2 instances"
+                )
+                self.iam_client.attach_role_policy(
+                    RoleName=role_name,
+                    PolicyArn=policy_arn
+                )
+                self._print_success(f"Created and attached custom policy: {custom_policy_name}")
+        except (FileNotFoundError, ValueError):
+            self._print_info("No custom EC2 policy found, using only Session Manager policy")
+        
+        # Create instance profile
+        profile_name = f"{self.project_name}-ec2-profile"
+        try:
+            self.iam_client.get_instance_profile(InstanceProfileName=profile_name)
+            self._print_success(f"Instance profile exists: {profile_name}")
+        except self.iam_client.exceptions.NoSuchEntityException:
+            self.iam_client.create_instance_profile(
+                InstanceProfileName=profile_name,
+                Tags=[
+                    {'Key': 'Project', 'Value': self.project_name}
+                ]
+            )
+            # Add role to instance profile
+            self.iam_client.add_role_to_instance_profile(
+                InstanceProfileName=profile_name,
+                RoleName=role_name
+            )
+            self._print_success(f"Created instance profile: {profile_name}")
+        
+        return profile_name
+    
     def setup_ec2_instance(self) -> str:
         """Setup EC2 instance"""
         self._print_header("🖥️ Setting up EC2 Instance")
@@ -381,6 +479,9 @@ class JemyaAWSManager:
         # Create security group
         sg_id = self._create_basic_security_group()
         
+        # Setup IAM role for Session Manager
+        instance_profile = self.setup_ec2_iam_role()
+        
         # Launch instance
         self._print_info("Launching EC2 instance")
         
@@ -409,11 +510,15 @@ class JemyaAWSManager:
             KeyName=key_name,
             SecurityGroupIds=[sg_id],
             SubnetId=self._get_default_subnet(),
+            IamInstanceProfile={
+                'Name': instance_profile
+            },
             TagSpecifications=[{
                 'ResourceType': 'instance',
                 'Tags': [
                     {'Key': 'Name', 'Value': f"{self.project_name}-instance"},
-                    {'Key': 'Project', 'Value': self.project_name}
+                    {'Key': 'Project', 'Value': self.project_name},
+                    {'Key': 'SessionManager', 'Value': 'enabled'}
                 ]
             }],
             UserData=self._get_user_data_script()
@@ -601,64 +706,11 @@ echo "User data script completed" > /var/log/user-data.log
         except ClientError:
             pass
     
-    # ========== SSH SECURITY GROUP MANAGEMENT ==========
-    
-    def fetch_github_actions_ips(self) -> List[str]:
-        """Fetch GitHub Actions IP ranges from GitHub API"""
-        try:
-            response = requests.get('https://api.github.com/meta', timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            github_ips = []
-            
-            for ip_range in data.get('actions', []):
-                try:
-                    network = ipaddress.ip_network(ip_range, strict=False)
-                    if network.version == 4:  # IPv4 only
-                        github_ips.append(str(network))
-                except ValueError:
-                    continue
-            
-            return github_ips
-            
-        except Exception as e:
-            self._print_error(f"Failed to fetch GitHub Actions IPs: {e}")
-            return []
-    
-    def optimize_ip_ranges(self, ip_ranges: List[str], max_rules: int = 50) -> List[str]:
-        """Optimize IP ranges to fit within AWS security group limits"""
-        networks_by_prefix = defaultdict(list)
-        
-        for ip_range in ip_ranges:
-            network = ipaddress.ip_network(ip_range)
-            networks_by_prefix[network.prefixlen].append(network)
-        
-        # Sort prefix lengths (prefer larger blocks)
-        sorted_prefixes = sorted(networks_by_prefix.keys())
-        
-        optimized_networks = []
-        covered_networks = set()
-        
-        for prefix_len in sorted_prefixes:
-            if len(optimized_networks) >= max_rules:
-                break
-                
-            for network in networks_by_prefix[prefix_len]:
-                if len(optimized_networks) >= max_rules:
-                    break
-                
-                is_covered = any(network.subnet_of(covered) for covered in covered_networks)
-                
-                if not is_covered:
-                    optimized_networks.append(network)
-                    covered_networks.add(network)
-        
-        return [str(net) for net in optimized_networks[:max_rules]]
+    # ========== SECURITY GROUP MANAGEMENT ==========
     
     def setup_web_traffic_security_group(self) -> str:
         """Setup web traffic security group for HTTP/HTTPS access"""
-        self._print_info("🌐 Setting up web traffic security group")
+        self._print_header("🌐 Setting up Web Security Group")
         
         try:
             # Check if security group exists
@@ -719,134 +771,188 @@ echo "User data script completed" > /var/log/user-data.log
             self._print_error(f"Failed to create web traffic security group: {e}")
             return None
     
-    def setup_ssh_security_groups(self, admin_ips: List[str] = None):
-        """Setup SSH security groups for GitHub Actions and admin access"""
-        self._print_header("🛡️ Setting up SSH Security Groups")
+    def setup_admin_ssh_security_group(self) -> str:
+        """Setup admin SSH security group for current IP"""
+        self._print_header("🔐 Setting up Admin SSH Access")
         
-        # Setup GitHub Actions security group
-        github_ips = self.fetch_github_actions_ips()
-        if github_ips:
-            optimized_ips = self.optimize_ip_ranges(github_ips, 50)
-            self._print_success(f"Optimized {len(github_ips)} GitHub Actions IPs to {len(optimized_ips)} rules")
-            
-            github_sg_id = self._create_or_update_security_group(
-                self.github_sg_name,
-                "SSH access for GitHub Actions runners - Jemya project",
-                optimized_ips
-            )
-        else:
-            github_sg_id = None
-        
-        # Setup admin security group
-        if admin_ips is None:
-            admin_ips = []
-            
-        # Auto-detect current IP
+        # Get current public IP
         try:
             response = requests.get('https://api.ipify.org', timeout=10)
             current_ip = response.text.strip()
-            if current_ip and f"{current_ip}/32" not in admin_ips:
-                if self.auto_mode or input(f"Add your current IP ({current_ip}) to admin access? (y/n): ").lower() == 'y':
-                    admin_ips.append(f"{current_ip}/32")
-        except Exception:
-            pass
+            self._print_info(f"Detected current public IP: {current_ip}")
+        except Exception as e:
+            self._print_error(f"Failed to get current IP: {e}")
+            return None
         
-        if admin_ips:
-            admin_sg_id = self._create_or_update_security_group(
-                self.admin_sg_name,
-                "SSH access for administrators and developers - Jemya project",
-                admin_ips
-            )
-        else:
-            admin_sg_id = None
+        # Ask for confirmation unless in auto mode
+        if not self.auto_mode:
+            confirm = input(f"{Colors.CYAN}Add/update SSH access for IP {current_ip}? (y/N): {Colors.END}").lower()
+            if confirm != 'y':
+                self._print_info("SSH setup cancelled")
+                return None
         
-        # Setup web traffic security group
-        web_sg_id = self.setup_web_traffic_security_group()
-        
-        # Update instance security groups
-        self._update_instance_security_groups(github_sg_id, admin_sg_id, web_sg_id)
-        
-        return github_sg_id, admin_sg_id
-    
-    def _create_or_update_security_group(self, name: str, description: str, ip_ranges: List[str]) -> str:
-        """Create or update security group with IP ranges"""
         try:
             # Check if security group exists
             response = self.ec2_client.describe_security_groups(
                 Filters=[
-                    {'Name': 'group-name', 'Values': [name]},
+                    {'Name': 'group-name', 'Values': [self.admin_sg_name]},
                     {'Name': 'vpc-id', 'Values': [self.vpc_id]}
                 ]
             )
             
             if response['SecurityGroups']:
                 sg_id = response['SecurityGroups'][0]['GroupId']
-                self._print_success(f"Found existing security group: {sg_id} ({name})")
-            else:
-                # Create new security group
-                response = self.ec2_client.create_security_group(
-                    GroupName=name,
-                    Description=description,
-                    VpcId=self.vpc_id
-                )
-                sg_id = response['GroupId']
-                self._print_success(f"Created security group: {sg_id} ({name})")
+                self._print_success(f"Found existing admin SSH security group: {sg_id}")
+                
+                # Update the IP address
+                self._update_admin_ssh_ip(sg_id, current_ip)
+                return sg_id
             
-            # Clear existing SSH rules
-            self._clear_ssh_rules(sg_id, name)
+            # Create new security group
+            response = self.ec2_client.create_security_group(
+                GroupName=self.admin_sg_name,
+                Description="SSH access for admin/developer",
+                VpcId=self.vpc_id
+            )
             
-            # Add new SSH rules
-            self._add_ssh_rules(sg_id, name, ip_ranges)
+            sg_id = response['GroupId']
             
+            # Add SSH rule for current IP
+            self.ec2_client.authorize_security_group_ingress(
+                GroupId=sg_id,
+                IpPermissions=[
+                    {
+                        'IpProtocol': 'tcp',
+                        'FromPort': 22,
+                        'ToPort': 22,
+                        'IpRanges': [{'CidrIp': f'{current_ip}/32', 'Description': 'Admin SSH access'}]
+                    }
+                ]
+            )
+            
+            # Add tags
+            self.ec2_client.create_tags(
+                Resources=[sg_id],
+                Tags=[
+                    {'Key': 'Name', 'Value': self.admin_sg_name},
+                    {'Key': 'Project', 'Value': self.project_name},
+                    {'Key': 'Purpose', 'Value': 'Admin-SSH'}
+                ]
+            )
+            
+            self._print_success(f"Created admin SSH security group: {sg_id}")
+            self._print_success(f"Added SSH access for IP: {current_ip}")
             return sg_id
             
         except ClientError as e:
-            self._print_error(f"Failed to create/update security group {name}: {e}")
+            self._print_error(f"Failed to create admin SSH security group: {e}")
             return None
     
-    def _clear_ssh_rules(self, sg_id: str, sg_name: str):
-        """Clear existing SSH rules from security group"""
+    def _update_admin_ssh_ip(self, sg_id: str, new_ip: str):
+        """Update admin SSH security group with new IP"""
         try:
+            # Get current rules
             response = self.ec2_client.describe_security_groups(GroupIds=[sg_id])
             sg = response['SecurityGroups'][0]
             
+            # Find SSH rules to remove
             ssh_rules = [rule for rule in sg['IpPermissions'] 
                         if rule.get('FromPort') == 22 and rule.get('ToPort') == 22]
             
+            # Check if IP is already configured
+            current_ips = []
+            for rule in ssh_rules:
+                for ip_range in rule.get('IpRanges', []):
+                    current_ips.append(ip_range['CidrIp'])
+            
+            if f"{new_ip}/32" in current_ips:
+                self._print_success(f"SSH access already configured for IP: {new_ip}")
+                return
+            
+            if current_ips:
+                self._print_info(f"Replacing existing SSH IPs: {', '.join(current_ips)}")
+            
+            # Remove old SSH rules
             if ssh_rules:
                 self.ec2_client.revoke_security_group_ingress(
                     GroupId=sg_id,
                     IpPermissions=ssh_rules
                 )
-                self._print_success(f"Cleared {len(ssh_rules)} SSH rules from {sg_name}")
+                self._print_info("Removed old SSH rules")
             
-        except ClientError as e:
-            self._print_warning(f"Failed to clear SSH rules: {e}")
-    
-    def _add_ssh_rules(self, sg_id: str, sg_name: str, ip_ranges: List[str]):
-        """Add SSH rules to security group"""
-        if not ip_ranges:
-            return
-        
-        ip_permissions = [{
-            'IpProtocol': 'tcp',
-            'FromPort': 22,
-            'ToPort': 22,
-            'IpRanges': [{'CidrIp': ip_range, 'Description': 'SSH access'} 
-                        for ip_range in ip_ranges]
-        }]
-        
-        try:
+            # Add new SSH rule
             self.ec2_client.authorize_security_group_ingress(
                 GroupId=sg_id,
-                IpPermissions=ip_permissions
+                IpPermissions=[
+                    {
+                        'IpProtocol': 'tcp',
+                        'FromPort': 22,
+                        'ToPort': 22,
+                        'IpRanges': [{'CidrIp': f'{new_ip}/32', 'Description': 'Admin SSH access'}]
+                    }
+                ]
             )
-            self._print_success(f"Added {len(ip_ranges)} SSH rules to {sg_name}")
+            
+            self._print_success(f"Updated SSH access for IP: {new_ip}")
             
         except ClientError as e:
-            self._print_warning(f"Failed to add SSH rules: {e}")
+            self._print_error(f"Failed to update SSH IP: {e}")
     
-    def _update_instance_security_groups(self, github_sg_id: str, admin_sg_id: str, web_sg_id: str = None):
+    def remove_admin_ssh_access(self):
+        """Remove admin SSH security group"""
+        self._print_header("🚫 Removing Admin SSH Access")
+        
+        # Ask for confirmation unless in auto mode
+        if not self.auto_mode:
+            confirm = input(f"{Colors.YELLOW}Remove SSH access completely? (y/N): {Colors.END}").lower()
+            if confirm != 'y':
+                self._print_info("SSH removal cancelled")
+                return
+        
+        try:
+            response = self.ec2_client.describe_security_groups(
+                Filters=[
+                    {'Name': 'group-name', 'Values': [self.admin_sg_name]},
+                    {'Name': 'vpc-id', 'Values': [self.vpc_id]}
+                ]
+            )
+            
+            if response['SecurityGroups']:
+                sg_id = response['SecurityGroups'][0]['GroupId']
+                
+                # Remove from instance first
+                instance = self._find_jemya_instance()
+                if instance:
+                    self._remove_sg_from_instance(instance['InstanceId'], sg_id)
+                
+                # Delete security group
+                self.ec2_client.delete_security_group(GroupId=sg_id)
+                self._print_success(f"Removed admin SSH security group: {sg_id}")
+            else:
+                self._print_info("Admin SSH security group not found")
+                
+        except ClientError as e:
+            self._print_error(f"Failed to remove admin SSH security group: {e}")
+    
+    def _remove_sg_from_instance(self, instance_id: str, sg_to_remove: str):
+        """Remove a security group from an instance"""
+        try:
+            # Get current security groups
+            response = self.ec2_client.describe_instances(InstanceIds=[instance_id])
+            instance = response['Reservations'][0]['Instances'][0]
+            current_sgs = [sg['GroupId'] for sg in instance['SecurityGroups'] if sg['GroupId'] != sg_to_remove]
+            
+            # Update instance security groups
+            self.ec2_client.modify_instance_attribute(
+                InstanceId=instance_id,
+                Groups=current_sgs
+            )
+            self._print_info(f"Removed security group from instance: {sg_to_remove}")
+            
+        except ClientError as e:
+            self._print_warning(f"Failed to remove security group from instance: {e}")
+    
+    def _update_instance_security_groups(self, web_sg_id: str, admin_ssh_sg_id: str = None):
         """Update EC2 instance security groups"""
         instance = self._find_jemya_instance()
         if not instance:
@@ -859,35 +965,25 @@ echo "User data script completed" > /var/log/user-data.log
         # Build new security group list
         new_sgs = []
         
-        # Add SSH security groups
-        if github_sg_id:
-            new_sgs.append(github_sg_id)
-        if admin_sg_id:
-            new_sgs.append(admin_sg_id)
-        
         # Add web traffic security group
         if web_sg_id:
             new_sgs.append(web_sg_id)
+            
+        # Add admin SSH security group if provided
+        if admin_ssh_sg_id:
+            new_sgs.append(admin_ssh_sg_id)
         
-        # Keep existing security groups that have HTTP/HTTPS rules or other non-SSH services
+        # Keep existing security groups (default, etc.)
         for sg_id in current_sgs:
-            if sg_id not in [github_sg_id, admin_sg_id, web_sg_id]:
+            if sg_id not in [web_sg_id, admin_ssh_sg_id]:
                 try:
                     response = self.ec2_client.describe_security_groups(GroupIds=[sg_id])
                     sg = response['SecurityGroups'][0]
                     sg_name = sg['GroupName']
                     
-                    # Check if this security group has non-SSH rules (HTTP/HTTPS/other services)
-                    has_non_ssh_rules = any(
-                        rule.get('FromPort') != 22 or rule.get('ToPort') != 22
-                        for rule in sg['IpPermissions']
-                    )
-                    
-                    if has_non_ssh_rules or sg_name == 'default':
-                        new_sgs.append(sg_id)
-                        self._print_info(f"Keeping security group: {sg_id} ({sg_name}) - has non-SSH rules")
-                    else:
-                        self._print_info(f"Removing SSH-only security group: {sg_id} ({sg_name})")
+                    # Always keep default SG and basic security groups
+                    new_sgs.append(sg_id)
+                    self._print_info(f"Keeping security group: {sg_id} ({sg_name})")
                         
                 except ClientError:
                     # If we can't describe the SG, keep it to be safe
@@ -907,9 +1003,9 @@ echo "User data script completed" > /var/log/user-data.log
             except ClientError as e:
                 self._print_error(f"Failed to update instance security groups: {e}")
     
-    def cleanup_ssh_security_groups(self):
-        """Cleanup SSH and web security groups"""
-        sg_names = [self.github_sg_name, self.admin_sg_name, self.web_sg_name, self.legacy_sg_name]
+    def cleanup_web_security_groups(self):
+        """Cleanup web and admin security groups"""
+        sg_names = [self.web_sg_name, self.admin_sg_name]
         
         for sg_name in sg_names:
             try:
@@ -974,8 +1070,8 @@ echo "User data script completed" > /var/log/user-data.log
         else:
             self._print_warning("EC2 Instance: Not found")
         
-        # Security Groups Status
-        sg_names = [self.github_sg_name, self.admin_sg_name, self.web_sg_name]
+        # Security Group Status
+        sg_names = [self.web_sg_name, self.admin_sg_name]
         for sg_name in sg_names:
             try:
                 response = self.ec2_client.describe_security_groups(
@@ -991,207 +1087,176 @@ echo "User data script completed" > /var/log/user-data.log
                         # Count HTTP/HTTPS rules for web traffic SG
                         web_rules = [rule for rule in sg['IpPermissions'] 
                                    if rule.get('FromPort') in [80, 443]]
-                        self._print_success(f"Security Group {sg_name}: {len(web_rules)} HTTP/HTTPS rules")
-                    else:
-                        # Count SSH rules for SSH SGs
+                        self._print_success(f"Web Security Group: {len(web_rules)} HTTP/HTTPS rules")
+                    elif sg_name == self.admin_sg_name:
+                        # Count SSH rules and show IP
                         ssh_rules = [rule for rule in sg['IpPermissions'] 
                                    if rule.get('FromPort') == 22]
-                        self._print_success(f"Security Group {sg_name}: {len(ssh_rules)} SSH rules")
+                        if ssh_rules and ssh_rules[0].get('IpRanges'):
+                            ip_range = ssh_rules[0]['IpRanges'][0]['CidrIp']
+                            self._print_success(f"Admin SSH Group: {ip_range}")
+                        else:
+                            self._print_success(f"Admin SSH Group: {len(ssh_rules)} SSH rules")
                 else:
-                    self._print_warning(f"Security Group {sg_name}: Not found")
+                    if sg_name == self.web_sg_name:
+                        self._print_warning("Web Security Group: Not found")
+                    elif sg_name == self.admin_sg_name:
+                        self._print_info("Admin SSH Group: Not configured")
                     
             except ClientError:
-                self._print_warning(f"Security Group {sg_name}: Error checking")
+                if sg_name == self.web_sg_name:
+                    self._print_warning("Web Security Group: Error checking")
+                elif sg_name == self.admin_sg_name:
+                    self._print_warning("Admin SSH Group: Error checking")
     
-    # ========== SSH CONNECTIVITY CHECKS ==========
+
     
-    def check_ssh_connectivity(self, test_github_actions: bool = True):
-        """Check SSH connectivity for deployment workflows"""
-        self._print_header("🔍 SSH Connectivity Check")
+    def deploy_application(self, force_rebuild: bool = False):
+        """Deploy the application using Session Manager"""
+        self._print_header("🚀 Deploying Jemya Application")
         
+        # Get instance details
         instance = self._find_jemya_instance()
         if not instance:
-            self._print_error("No EC2 instance found")
+            self._print_error("No EC2 instance found. Please run setup first.")
             return False
-        
-        if instance['State']['Name'] != 'running':
-            self._print_error(f"Instance is not running (state: {instance['State']['Name']})")
-            return False
-        
-        if 'PublicIpAddress' not in instance:
-            self._print_error("Instance has no public IP address")
-            return False
-        
-        public_ip = instance['PublicIpAddress']
+            
         instance_id = instance['InstanceId']
+        self._print_info(f"Target instance: {instance_id}")
         
-        self._print_info(f"Instance: {instance_id}")
-        self._print_info(f"Public IP: {public_ip}")
-        
-        # Check security groups
-        current_sgs = {sg['GroupName']: sg['GroupId'] for sg in instance['SecurityGroups']}
-        self._print_info(f"Security Groups: {', '.join(current_sgs.keys())}")
-        
-        # Test SSH port connectivity
-        if not self._test_port_connectivity(public_ip, 22):
-            self._print_error("SSH port (22) is not accessible")
+        # Get ECR repository URI
+        ecr_repo = self._get_ecr_repository_uri()
+        if not ecr_repo:
+            self._print_error("No ECR repository found. Please run setup first.")
             return False
-        
-        # Check GitHub Actions IP access if requested
-        if test_github_actions:
-            if not self._check_github_actions_access(current_sgs):
-                return False
-        
-        # Test actual SSH connection if key is available
-        key_file = f"{self.project_name}-key.pem"
-        if os.path.exists(key_file):
-            if self._test_ssh_connection(public_ip, key_file):
-                self._print_success("SSH connection successful!")
-                return True
-            else:
-                self._print_error("SSH connection failed")
-                return False
-        else:
-            self._print_warning(f"SSH key file not found: {key_file}")
-            self._print_info("Cannot test actual SSH connection without key file")
-            self._print_success("Port connectivity check passed")
-            return True
-    
-    def _test_port_connectivity(self, host: str, port: int, timeout: int = 10) -> bool:
-        """Test if a port is accessible on a host"""
-        import socket
+            
+        self._print_info(f"ECR repository: {ecr_repo}")
         
         try:
-            sock = socket.create_connection((host, port), timeout)
-            sock.close()
-            self._print_success(f"Port {port} is accessible on {host}")
-            return True
-        except (socket.timeout, socket.error) as e:
-            self._print_error(f"Port {port} is not accessible on {host}: {e}")
-            return False
-    
-    def _check_github_actions_access(self, current_sgs: Dict[str, str]) -> bool:
-        """Check if GitHub Actions security group is properly configured"""
-        github_sg_id = current_sgs.get(self.github_sg_name)
-        
-        if not github_sg_id:
-            self._print_error(f"GitHub Actions security group '{self.github_sg_name}' not attached to instance")
-            return False
-        
-        try:
-            # Check if GitHub Actions SG has SSH rules
-            response = self.ec2_client.describe_security_groups(GroupIds=[github_sg_id])
-            sg = response['SecurityGroups'][0]
+            # Build and push Docker image
+            self._print_info("Building and pushing Docker image...")
             
-            ssh_rules = [rule for rule in sg['IpPermissions'] 
-                        if rule.get('FromPort') == 22 and rule.get('ToPort') == 22]
+            # Get current directory (should be project root)
+            current_dir = os.getcwd()
             
-            if not ssh_rules:
-                self._print_error(f"No SSH rules found in {self.github_sg_name}")
-                return False
-            
-            # Count IP ranges
-            total_ranges = sum(len(rule.get('IpRanges', [])) for rule in ssh_rules)
-            self._print_success(f"GitHub Actions security group has {total_ranges} SSH IP ranges")
-            
-            # Test a sample GitHub Actions IP
-            if self._test_github_actions_ip_sample():
-                self._print_success("GitHub Actions IP ranges appear to be working")
-                return True
-            else:
-                self._print_warning("Could not verify GitHub Actions IP access")
-                return True  # Don't fail the check, just warn
-                
-        except ClientError as e:
-            self._print_error(f"Failed to check GitHub Actions security group: {e}")
-            return False
-    
-    def _test_github_actions_ip_sample(self) -> bool:
-        """Test if current public IP would be allowed by GitHub Actions rules"""
-        try:
-            # Get current public IP
-            response = requests.get('https://api.ipify.org', timeout=10)
-            current_ip = ipaddress.ip_address(response.text.strip())
-            
-            # Get GitHub Actions IPs
-            github_ips = self.fetch_github_actions_ips()
-            if not github_ips:
-                return False
-            
-            # Check if current IP would be covered by any GitHub Actions range
-            for ip_range in github_ips:
-                network = ipaddress.ip_network(ip_range, strict=False)
-                if current_ip in network:
-                    self._print_info(f"Current IP {current_ip} is covered by GitHub Actions range {ip_range}")
-                    return True
-            
-            self._print_info(f"Current IP {current_ip} is not in GitHub Actions ranges (this is normal)")
-            return True
-            
-        except Exception:
-            return False
-    
-    def _test_ssh_connection(self, host: str, key_file: str, timeout: int = 30) -> bool:
-        """Test actual SSH connection to the host"""
-        try:
-            # Test SSH connection with a simple command
-            cmd = [
-                'ssh',
-                '-i', key_file,
-                '-o', 'StrictHostKeyChecking=no',
-                '-o', 'UserKnownHostsFile=/dev/null',
-                '-o', f'ConnectTimeout={timeout}',
-                '-o', 'BatchMode=yes',  # Non-interactive
-                f'ubuntu@{host}',
-                'echo "SSH connection successful"'
+            build_commands = [
+                f"cd {current_dir}",
+                f"aws ecr get-login-password --region {self.region} | docker login --username AWS --password-stdin {ecr_repo}",
+                f"docker build -t jemya .",
+                f"docker tag jemya:latest {ecr_repo}:latest",
+                f"docker push {ecr_repo}:latest"
             ]
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
+            for cmd in build_commands:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode != 0:
+                    self._print_error(f"Build command failed: {cmd}")
+                    self._print_error(f"Error: {result.stderr}")
+                    return False
             
-            if result.returncode == 0:
-                self._print_success("SSH connection test passed")
+            self._print_success("Docker image built and pushed successfully")
+            
+            # Deploy to EC2 using Session Manager
+            self._print_info("Deploying to EC2 instance...")
+            
+            # Stop existing container
+            stop_cmd = "sudo docker stop jemya || true"
+            self._run_ssm_command(instance_id, stop_cmd)
+            
+            # Remove existing container
+            remove_cmd = "sudo docker rm jemya || true"
+            self._run_ssm_command(instance_id, remove_cmd)
+            
+            # Login to ECR on the instance
+            login_cmd = f"aws ecr get-login-password --region {self.region} | sudo docker login --username AWS --password-stdin {ecr_repo}"
+            if not self._run_ssm_command(instance_id, login_cmd):
+                return False
+            
+            # Pull latest image
+            pull_cmd = f"sudo docker pull {ecr_repo}:latest"
+            if not self._run_ssm_command(instance_id, pull_cmd):
+                return False
+            
+            # Run new container
+            run_cmd = f"sudo docker run -d --name jemya -p 80:5000 --restart unless-stopped {ecr_repo}:latest"
+            if not self._run_ssm_command(instance_id, run_cmd):
+                return False
+            
+            # Wait a moment for container to start
+            time.sleep(10)
+            
+            # Check container status
+            status_cmd = "sudo docker ps --filter name=jemya --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+            if self._run_ssm_command(instance_id, status_cmd):
+                self._print_success("Application deployed successfully!")
+                
+                # Get public IP
+                public_ip = instance.get('PublicIpAddress')
+                if public_ip:
+                    self._print_success(f"Application available at: http://{public_ip}")
+                
                 return True
             else:
-                self._print_error(f"SSH connection failed: {result.stderr}")
+                self._print_error("Deployment verification failed")
                 return False
                 
-        except subprocess.TimeoutExpired:
-            self._print_error("SSH connection timed out")
-            return False
         except Exception as e:
-            self._print_error(f"SSH connection test failed: {e}")
+            self._print_error(f"Deployment failed: {e}")
             return False
     
-    def fix_deployment_connectivity(self):
-        """Fix common deployment connectivity issues"""
-        self._print_header("🔧 Fixing Deployment Connectivity Issues")
-        
-        # Check current status
-        if not self.check_ssh_connectivity(test_github_actions=False):
-            self._print_info("Attempting to fix connectivity issues...")
+    def _run_ssm_command(self, instance_id: str, command: str) -> bool:
+        """Run a command on EC2 instance via Session Manager"""
+        try:
+            response = self.ssm_client.send_command(
+                InstanceIds=[instance_id],
+                DocumentName="AWS-RunShellScript",
+                Parameters={'commands': [command]}
+            )
             
-            # Refresh SSH security groups
-            self._print_info("Refreshing SSH security groups...")
-            self.setup_ssh_security_groups()
+            command_id = response['Command']['CommandId']
             
-            # Wait a moment for changes to propagate
-            time.sleep(5)
+            # Wait for command to complete
+            waiter = self.ssm_client.get_waiter('command_executed')
+            waiter.wait(
+                CommandId=command_id,
+                InstanceId=instance_id,
+                WaiterConfig={'Delay': 2, 'MaxAttempts': 30}
+            )
             
-            # Check again
-            if self.check_ssh_connectivity():
-                self._print_success("Connectivity issues resolved!")
+            # Get command result
+            result = self.ssm_client.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=instance_id
+            )
+            
+            if result['Status'] == 'Success':
+                if result.get('StandardOutputContent'):
+                    print(result['StandardOutputContent'])
                 return True
             else:
-                self._print_error("Could not resolve connectivity issues")
+                self._print_error(f"Command failed: {result.get('StandardErrorContent', 'Unknown error')}")
                 return False
-        else:
-            self._print_success("No connectivity issues found")
-            return True
+                
+        except Exception as e:
+            self._print_error(f"Failed to run SSM command: {e}")
+            return False
+    
+    def _get_ecr_repository_uri(self) -> str:
+        """Get ECR repository URI"""
+        try:
+            response = self.ecr_client.describe_repositories(
+                repositoryNames=['jemya']
+            )
+            
+            if response['repositories']:
+                return response['repositories'][0]['repositoryUri']
+            return None
+            
+        except self.ecr_client.exceptions.RepositoryNotFoundException:
+            return None
+        except Exception as e:
+            self._print_error(f"Failed to get ECR repository: {e}")
+            return None
     
     # ========== MAIN COMMANDS ==========
     
@@ -1211,8 +1276,10 @@ echo "User data script completed" > /var/log/user-data.log
         # Setup EC2
         instance_id = self.setup_ec2_instance()
         
-        # Setup SSH Security
-        self.setup_ssh_security_groups()
+        # Setup web security group for HTTP/HTTPS access
+        web_sg_id = self.setup_web_traffic_security_group()
+        if web_sg_id:
+            self._update_instance_security_groups(web_sg_id)
         
         # Final summary
         self._print_header("🎉 Setup Complete!")
@@ -1220,6 +1287,8 @@ echo "User data script completed" > /var/log/user-data.log
         print(f"\n{Colors.BOLD}Infrastructure Summary:{Colors.END}")
         print(f"  🐳 ECR Repository: {repo_uri}")
         print(f"  🖥️  EC2 Instance: {instance_id}")
+        print(f"  🔧 Session Manager: Enabled (SSH-less deployment)")
+        print(f"  🔐 IAM Role: {self.project_name}-ec2-role (with Session Manager access)")
         
         if access_key and secret_key:
             print(f"\n{Colors.BOLD}GitHub Secrets to Add:{Colors.END}")
@@ -1227,6 +1296,10 @@ echo "User data script completed" > /var/log/user-data.log
             print(f"  AWS_SECRET_ACCESS_KEY: {secret_key}")
             print(f"  AWS_REGION: {self.region}")
             print(f"  ECR_REPOSITORY: {repo_uri}")
+        
+        print(f"\n{Colors.BOLD}Deployment Method:{Colors.END}")
+        print(f"  🚀 Use Session Manager for deployments (no SSH required)")
+        print(f"  📝 Deploy command: python3 aws_manager.py deploy")
         
         self._print_warning("Save the access keys securely - they won't be shown again!")
     
@@ -1241,7 +1314,7 @@ echo "User data script completed" > /var/log/user-data.log
                 return
         
         # Cleanup in reverse order
-        self.cleanup_ssh_security_groups()
+        self.cleanup_web_security_groups()
         self.cleanup_ec2_instance()
         self.cleanup_iam_user()
         self.cleanup_ecr()
@@ -1258,29 +1331,28 @@ def main():
 Commands:
   setup       Complete infrastructure setup (ECR, IAM, EC2, Security Groups)
   cleanup     Clean up all AWS resources
-  ssh         Manage SSH security groups only
   status      Show current infrastructure status
-  check-ssh   Check SSH connectivity for deployment workflows
-  fix-ssh     Fix deployment connectivity issues
+  deploy      Deploy application using Session Manager
+  ssh         Manage admin SSH access (add/update current IP)
   
 Examples:
   python3 aws_manager.py setup              # Complete setup
   python3 aws_manager.py cleanup --auto     # Automated cleanup
-  python3 aws_manager.py ssh --admin-ip 1.2.3.4/32
   python3 aws_manager.py status             # Show current status
-  python3 aws_manager.py check-ssh          # Test SSH connectivity
-  python3 aws_manager.py fix-ssh            # Fix SSH issues
+  python3 aws_manager.py deploy             # Deploy application
+  python3 aws_manager.py ssh                # Add/update SSH access for current IP
         """
     )
     
-    parser.add_argument('command', choices=['setup', 'cleanup', 'ssh', 'status', 'check-ssh', 'fix-ssh'],
+    parser.add_argument('command', choices=['setup', 'cleanup', 'status', 'deploy', 'ssh'],
                         help='Command to execute')
     parser.add_argument('--region', default='eu-west-1',
                         help='AWS region (default: eu-west-1)')
     parser.add_argument('--auto', action='store_true',
                         help='Run in automatic mode (no interactive prompts)')
-    parser.add_argument('--admin-ip', action='append',
-                        help='Admin IP address in CIDR format (for ssh command)')
+    parser.add_argument('--remove', action='store_true',
+                        help='Remove SSH access (only used with ssh command)')
+
     
     args = parser.parse_args()
     
@@ -1292,14 +1364,17 @@ Examples:
         manager.setup_complete_infrastructure()
     elif args.command == 'cleanup':
         manager.cleanup_complete_infrastructure()
-    elif args.command == 'ssh':
-        manager.setup_ssh_security_groups(admin_ips=args.admin_ip or [])
     elif args.command == 'status':
         manager.show_status()
-    elif args.command == 'check-ssh':
-        manager.check_ssh_connectivity()
-    elif args.command == 'fix-ssh':
-        manager.fix_deployment_connectivity()
+    elif args.command == 'deploy':
+        manager.deploy_application()
+    elif args.command == 'ssh':
+        if args.remove:
+            manager.remove_admin_ssh_access()
+        else:
+            ssh_sg_id = manager.setup_admin_ssh_security_group()
+            if ssh_sg_id:
+                manager._update_instance_security_groups(None, ssh_sg_id)
 
 
 if __name__ == '__main__':

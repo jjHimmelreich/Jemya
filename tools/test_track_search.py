@@ -6,9 +6,6 @@ This script will test the search logic for all 28 tracks from the AI-generated p
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import configuration_manager as conf
 import json
 from typing import Dict, List, Any

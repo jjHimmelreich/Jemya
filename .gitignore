@@ -34,3 +34,33 @@ aws-credentials.txt
 
 # Generated IP range files (update frequently)
 github-actions-*-ranges.txt
+
+# Archive and temporary files
+ZZZ_archive_*
+**/archive/**
+**/_archive/**
+
+# Test and debug files
+test_*.py
+debug_*.py
+*_debug.py
+analyze_*.py
+
+# Build artifacts and cache
+*.pyc
+.pytest_cache/
+.coverage
+
+# VS Code and IDE files
+.vscode/settings.json
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+*~

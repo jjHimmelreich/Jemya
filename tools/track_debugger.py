@@ -11,9 +11,6 @@ Usage:
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import configuration_manager as conf
 from spotify_manager import SpotifyManager
 
