@@ -6,6 +6,7 @@ Spotify Playlists Generator and Analyzer
 ![CI/CD](https://img.shields.io/badge/CI%2FCD-Separated_Workflows-orange?style=flat-square)
 
 ## 🚀 Quick Setup
+<!-- Trigger deployment with debugging -->
 
 ### Local Development
 1. Copy your configuration to `conf.py`:
