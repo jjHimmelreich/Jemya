@@ -81,13 +81,13 @@ jobs:
 
     # 🔍 Static Application Security Testing (SAST) with CodeQL
     - name: 🔍 Initialize CodeQL
-      uses: github/codeql-action/init@v3
+      uses: github/codeql-action/init@v4
       with:
         languages: python
         queries: security-extended,security-and-quality
 
     - name: 🔍 Perform CodeQL Vulnerabilities Analysis
-      uses: github/codeql-action/analyze@v3
+      uses: github/codeql-action/analyze@v4
       with:
         category: "/language:python"
 
