@@ -11,6 +11,7 @@ import streamlit as st
 from spotipy.oauth2 import SpotifyOAuth
 
 from ai_manager import AIManager
+from mcp_manager import MCPManager
 # Import our custom modules
 from conversation_manager import ConversationManager
 from spotify_manager import SpotifyManager
@@ -18,11 +19,13 @@ from spotify_manager import SpotifyManager
 # Initialize managers
 conversation_manager = ConversationManager()
 spotify_manager = SpotifyManager()
-ai_manager = AIManager()
+ai_manager = AIManager()  # Will be re-initialized with MCP if needed
 
 
 def switch_to_playlist_conversation(user_id, playlist_id, playlist_name):
     """Switch to a specific playlist conversation"""
+    print(f"DEBUG: Switching to conversation for playlist '{playlist_name}' ({playlist_id})")
+
     # Save current conversation if there's an active playlist and it has changed
     if 'current_playlist_id' in st.session_state and st.session_state.current_playlist_id:
         current_user_id = st.session_state.get('current_user_id')
@@ -231,7 +234,7 @@ def apply_playlist_changes(playlist_id, track_suggestions):
 # Streamlit App Configuration
 st.set_page_config(page_title="Jemya - Playlist Generator", page_icon="🎵")
 
-# Add CSS to remove link underlines and improve button alignment
+# Add CSS to remove link underlines, improve button alignment, and create fixed control panel
 st.markdown("""
 <style>
     .sidebar .element-container a {
@@ -257,6 +260,11 @@ st.markdown("""
     }
     .sidebar .stCheckbox > label {
         font-size: 14px !important;
+    }
+    
+    /* Add bottom padding to main content to prevent overlap */
+    .main .block-container {
+        padding-bottom: 160px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -289,8 +297,39 @@ if "current_playlist_name" not in st.session_state:
 if "current_user_id" not in st.session_state:
     st.session_state.current_user_id = None
 
+# Restore Spotify token from cache if available (for browser refresh persistence)
+if st.session_state.token_info is None:
+    sp_oauth = spotify_manager.get_spotify_oauth()
+    cached_token = sp_oauth.get_cached_token()
+    if cached_token:
+        print("DEBUG: Restored token from cache file after page refresh")
+        st.session_state.token_info = cached_token
+
 # Sidebar for Spotify functionality
 st.sidebar.title("Jemya - AI Playlist Generator")
+
+# MCP Mode toggle (experimental feature)
+st.sidebar.markdown("---")
+with st.sidebar.expander("⚙️ Advanced Settings", expanded=False):
+    mcp_mode = st.checkbox(
+        "🔬 Enable MCP Mode (Experimental)",
+        value=st.session_state.get('mcp_mode', False),
+        help="Enable Model Context Protocol for cross-playlist operations. Allows AI to read and combine multiple playlists."
+    )
+    st.session_state.mcp_mode = mcp_mode
+    
+    if mcp_mode:
+        st.info(
+            "🎯 **MCP Mode Enabled**\n\n"
+            "AI can now:\n"
+            "• Read multiple playlists\n"
+            "• Combine playlists\n"
+            "• Merge & deduplicate\n"
+            "• Split playlists\n\n"
+            "Try: *'Combine my workout playlists'*"
+        )
+
+st.sidebar.markdown("---")
 
 
 # Handle OAuth callback
@@ -372,30 +411,44 @@ else:
                     print(f"DEBUG: Session state restored - playlist_id: {bool(playlist_id)}, messages: {len(messages)}")
     
     if user_info:
-        st.sidebar.success(f"{user_info.get('display_name', 'User')}!")
-        
-        # Logout button
-        if st.sidebar.button("🚪 Logout"):
-            # Save current session before logging out
-            if st.session_state.current_user_id and st.session_state.current_playlist_id:
-                conversation_manager.save_user_session(st.session_state.current_user_id, 
-                                st.session_state.current_playlist_id, 
-                                st.session_state.current_playlist_name)
-                # Also save the current conversation
-                if conversation_manager.has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages):
-                    conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
-            
-            st.session_state.token_info = None
-            st.session_state.user_info = None
-            st.session_state.current_playlist_id = None
-            st.session_state.current_playlist_name = None
-            st.session_state.current_user_id = None
-            st.session_state.messages = []
-            st.rerun()
+        # Compact user info display
+        col_user, col_logout = st.sidebar.columns([2, 1])
+        with col_user:
+            st.markdown(f"👤 **{user_info.get('display_name', 'User')}**")
+        with col_logout:
+            if st.button("Logout", key="logout_button", use_container_width=True):
+                # Save current session before logging out
+                if st.session_state.current_user_id and st.session_state.current_playlist_id:
+                    conversation_manager.save_user_session(st.session_state.current_user_id, 
+                                    st.session_state.current_playlist_id, 
+                                    st.session_state.current_playlist_name)
+                    # Also save the current conversation
+                    if conversation_manager.has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages):
+                        conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
+                
+                # Clear the cached token file
+                import os
+                cache_file = ".spotify_token_cache"
+                if os.path.exists(cache_file):
+                    os.remove(cache_file)
+                    print("DEBUG: Removed token cache file on logout")
+                
+                st.session_state.token_info = None
+                st.session_state.user_info = None
+                st.session_state.current_playlist_id = None
+                st.session_state.current_playlist_name = None
+                st.session_state.current_user_id = None
+                st.session_state.messages = []
+                st.rerun()
 
     # Show playlists
     st.sidebar.markdown("---")
     st.sidebar.subheader("📚 Your Playlists")
+    
+    # Full-width Create New Playlist button
+    if st.sidebar.button("➕ Create New Playlist", help="Create a new playlist", key="create_playlist_button", type="primary", use_container_width=True):
+        st.session_state.show_create_dialog = True
+        st.rerun()
     
     # Add controls on the same line - checkbox and reload button
     col1, col2 = st.sidebar.columns([3, 2])
@@ -407,13 +460,61 @@ else:
     with col2:
         # Add reload playlists button for debugging
         if st.button("🔄 Reload", help="Clear cache and refresh playlist data", key="reload_playlists"):
+            print(f"DEBUG: Reload button clicked - token_info exists: {st.session_state.token_info is not None}")
             # Clear the playlist cache to force refresh
             if 'cached_playlists' in st.session_state:
                 del st.session_state.cached_playlists
             if 'playlists_cache_time' in st.session_state:
                 del st.session_state.playlists_cache_time
-            st.sidebar.info("Reloading playlists...")
+            print(f"DEBUG: Cache cleared, about to rerun - token_info still exists: {st.session_state.token_info is not None}")
             st.rerun()
+    
+    # Create playlist dialog
+    if st.session_state.get('show_create_dialog', False):
+        with st.sidebar.form(key='create_playlist_form', clear_on_submit=True):
+            st.markdown("### Create New Playlist")
+            new_playlist_name = st.text_input("Playlist name:", placeholder="My Awesome Playlist", key="new_playlist_name_input")
+            new_playlist_description = st.text_area("Description (optional):", placeholder="A great collection of songs...", key="new_playlist_desc_input")
+            is_public = st.checkbox("Make public", value=False, key="new_playlist_public")
+            
+            col_submit, col_cancel = st.columns(2)
+            with col_submit:
+                submit_button = st.form_submit_button("✅ Create", type="primary", use_container_width=True)
+            with col_cancel:
+                cancel_button = st.form_submit_button("❌ Cancel", use_container_width=True)
+            
+            if submit_button and new_playlist_name:
+                # Create the playlist
+                success, message, new_playlist_id = spotify_manager.create_playlist(
+                    new_playlist_name, 
+                    description=new_playlist_description,
+                    public=is_public
+                )
+                
+                if success:
+                    st.sidebar.success(f"✅ {message}")
+                    # Clear cache to refresh playlist list
+                    if 'cached_playlists' in st.session_state:
+                        del st.session_state.cached_playlists
+                    if 'playlists_cache_time' in st.session_state:
+                        del st.session_state.playlists_cache_time
+                    st.session_state.show_create_dialog = False
+                    
+                    # Switch to the new playlist conversation
+                    if new_playlist_id:
+                        user_id = st.session_state.user_info.get('id') if st.session_state.user_info else None
+                        if user_id:
+                            switch_to_playlist_conversation(user_id, new_playlist_id, new_playlist_name)
+                    
+                    st.rerun()
+                else:
+                    st.sidebar.error(f"❌ {message}")
+            elif submit_button:
+                st.sidebar.warning("Please enter a playlist name")
+            
+            if cancel_button:
+                st.session_state.show_create_dialog = False
+                st.rerun()
     
     try:
         playlists = spotify_manager.get_user_playlists()
@@ -671,8 +772,34 @@ else:
                                 
                                 # Set flag to auto-scroll to bottom
                                 st.session_state.auto_scroll = True
+                            elif tracks is not None and len(tracks) == 0:
+                                # Empty playlist (newly created) - show friendly message
+                                # Extract playlist owner information
+                                owner_data = playlist.get('owner', {})
+                                if isinstance(owner_data, dict):
+                                    owner_name = owner_data.get('display_name', 'Unknown')
+                                else:
+                                    owner_name = 'Unknown'
+                                
+                                is_public = playlist.get('public', False)
+                                
+                                empty_playlist_msg = f"## 🎵 {playlist_name}\n\n"
+                                empty_playlist_msg += f"**Created by:** {owner_name} • **0 tracks** • {'Public' if is_public else 'Private'}\n\n"
+                                empty_playlist_msg += "*This playlist is empty. Start adding tracks by telling me what kind of music you'd like!*"
+                                
+                                st.session_state.messages.append({
+                                    "role": "user", 
+                                    "content": empty_playlist_msg
+                                })
+                                
+                                # Save conversation
+                                playlist_snapshot = conversation_manager.get_playlist_snapshot(playlist, [])
+                                conversation_manager.save_conversation(user_id, playlist_id, st.session_state.messages, playlist_snapshot)
+                                
+                                # Set flag to auto-scroll to bottom
+                                st.session_state.auto_scroll = True
                             else:
-                                # Fallback if tracks couldn't be loaded
+                                # Actual error loading tracks
                                 playlist_info = f"Playlist: {playlist_name} ({track_count} tracks) - Could not load track details"
                                 st.session_state.messages.append({
                                     "role": "user", 
@@ -705,15 +832,16 @@ st.sidebar.markdown("---")
 if st.session_state.token_info is None:
     st.info("🎵 Connect to Spotify to create personalized playlists based on your music taste!")
 
-# Display chat messages from history on app rerun (excluding system messages)
-for message in st.session_state.messages:
-    # Skip system messages in the display
-    if message["role"] != "system":
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# Display chat messages from history on app rerun (excluding system messages) - only when logged in
+if st.session_state.token_info is not None:
+    for message in st.session_state.messages:
+        # Skip system messages in the display
+        if message["role"] != "system":
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-# Auto-scroll to bottom if flag is set
-if st.session_state.get("auto_scroll", False):
+# Auto-scroll to bottom if flag is set - only when logged in
+if st.session_state.token_info is not None and st.session_state.get("auto_scroll", False):
     st.session_state.auto_scroll = False  # Reset flag
     # Use JavaScript to scroll to bottom
     st.components.v1.html(
@@ -730,374 +858,208 @@ if st.session_state.get("auto_scroll", False):
         height=0,
     )
 
-# Accept user input
-if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    # Display user message in chat UI
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # Prepare system message for intelligent playlist enrichment
-    system_content = ai_manager.generate_system_message(has_spotify_connection=bool(st.session_state.token_info))
-    system_message = {"role": "system", "content": system_content}
-
-    # Get assistant response
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
+# Chat input processing - only when logged in
+if st.session_state.token_info is not None:
+    
+    # Handle user input if provided (this will be processed before the UI is rendered)
+    if 'pending_prompt' in st.session_state and st.session_state.pending_prompt:
+        prompt = st.session_state.pending_prompt
+        del st.session_state.pending_prompt
         
-        # Prepare messages for OpenAI API
-        api_messages = [system_message] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        # Display user message in chat UI
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Check if MCP mode is enabled
+        mcp_mode_enabled = st.session_state.get('mcp_mode', False)
         
-        try:
-            for response_chunk in ai_manager.client.chat.completions.create(
-                model="gpt-4o",
-                messages=api_messages,
-                stream=True,
-                timeout=30,
-            ):
-                full_response += (response_chunk.choices[0].delta.content or "")
-                message_placeholder.markdown(full_response + "▌")
-            message_placeholder.markdown(full_response)
-        except Exception as e:
-            error_message = f"Sorry, I encountered a connection error: {str(e)[:100]}... Please try again."
-            message_placeholder.markdown(error_message)
-            full_response = error_message
-            print(f"ERROR: OpenAI API error: {e}")
-    
-    # Add assistant response to chat history
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
-    
-    # Auto-save conversation if we have an active playlist and changes were made
-    if (st.session_state.current_playlist_id and st.session_state.current_user_id and 
-        conversation_manager.has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)):
-        conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
-        # Also save the session state
-        conversation_manager.save_user_session(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.current_playlist_name)
-        print(f"DEBUG: Auto-saved conversation and session after assistant response")
-    
-    # Set flag to auto-scroll to bottom
-    st.session_state.auto_scroll = True
-
-# Footer with Apply Changes button
-st.markdown("---")
-
-# Initialize session state for preview and apply tracking (always initialize)
-if 'show_preview' not in st.session_state:
-    st.session_state.show_preview = False
-if 'preview_data' not in st.session_state:
-    st.session_state.preview_data = None
-if 'last_apply_time' not in st.session_state:
-    st.session_state.last_apply_time = 0
-if 'applying_changes' not in st.session_state:
-    st.session_state.applying_changes = False
-if 'generating_preview' not in st.session_state:
-    st.session_state.generating_preview = False
-
-# Check if buttons should be enabled (but always show them)
-print(f"DEBUG: Button visibility check - playlist_id: {bool(st.session_state.current_playlist_id)}, playlist_name: {bool(st.session_state.current_playlist_name)}, token: {bool(st.session_state.token_info)}, messages: {len(st.session_state.messages)}")
-buttons_enabled = (st.session_state.current_playlist_id and 
-                  st.session_state.current_playlist_name and 
-                  st.session_state.token_info and 
-                  len(st.session_state.messages) > 0)
-
-if buttons_enabled:
-    print("DEBUG: *** BUTTONS ENABLED ***")
-else:
-    print("DEBUG: *** BUTTONS DISABLED - conditions not met ***")
-
-# Get AI suggestions from the conversation (use the latest assistant message)
-ai_suggestions = None
-if len(st.session_state.messages) > 0:
-    for message in reversed(st.session_state.messages):  # Get the latest assistant message
-        if message["role"] == "assistant":
-            ai_suggestions = message["content"]
-            break
-
-print(f"DEBUG: Found {len(st.session_state.messages)} messages, ai_suggestions: {ai_suggestions is not None}")
-if ai_suggestions:
-    print(f"DEBUG: AI suggestions preview (first 200 chars): {ai_suggestions[:200]}...")
-
-# Always show buttons, but with different states based on conditions
-if not buttons_enabled:
-    st.info("🎵 Select a playlist and start a conversation to see action buttons!")
-    # Still show buttons but all disabled
-    button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
-    buttons_disabled = True
-elif not ai_suggestions:
-    st.warning("No AI suggestions found to apply to the playlist.")
-    # Still show buttons but all disabled
-    button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
-    buttons_disabled = True
-else:
-    # Show all 5 conversation control buttons horizontally (fully functional)
-    # Horizontal layout for all 5 conversation control buttons
-    button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
-    buttons_disabled = False
-
-with button_col1:
-                    # Open in Spotify button with icon
-                    spotify_url = f"https://open.spotify.com/playlist/{st.session_state.current_playlist_id}"
-                    spotify_icon_b64 = st.session_state.get("spotify_icon_b64", "")
-                    if spotify_icon_b64:
-                        st.markdown(f"""
-                            <div style="text-align: center;">
-                                <a href="{spotify_url}" target="_blank" style="
-                                    display: inline-block;
-                                    padding: 0.5rem;
-                                    background-color: #1DB954;
-                                    color: white;
-                                    text-decoration: none;
-                                    border-radius: 0.5rem;
-                                    width: 100%;
-                                    text-align: center;
-                                    box-sizing: border-box;
-                                    transition: all 0.2s;
-                                " onmouseover="this.style.backgroundColor='#1ed760'" 
-                                   onmouseout="this.style.backgroundColor='#1DB954'"
-                                   title="Open in Spotify">
-                                    <img src="data:image/png;base64,{spotify_icon_b64}" style="height: 20px; vertical-align: middle;">
-                                </a>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        # Fallback to text if icon not loaded
-                        st.markdown(f"""
-                            <div style="text-align: center;">
-                                <a href="{spotify_url}" target="_blank" style="
-                                    display: inline-block;
-                                    padding: 0.5rem;
-                                    background-color: #1DB954;
-                                    color: white;
-                                    text-decoration: none;
-                                    border-radius: 0.5rem;
-                                    width: 100%;
-                                    text-align: center;
-                                    box-sizing: border-box;
-                                    font-size: 14px;
-                                    transition: all 0.2s;
-                                " onmouseover="this.style.backgroundColor='#1ed760'" 
-                                   onmouseout="this.style.backgroundColor='#1DB954'"
-                                   title="Open in Spotify">
-                                    🎧 Spotify
-                                </a>
-                            </div>
-                        """, unsafe_allow_html=True)
-            
-with button_col2:
-                    print(f"DEBUG: Button state check - generating_preview: {st.session_state.get('generating_preview', False)}, applying_changes: {st.session_state.get('applying_changes', False)}")
-                    is_disabled = st.session_state.generating_preview or st.session_state.applying_changes
-                    print(f"DEBUG: Button disabled state: {is_disabled}")
-                    print(f"DEBUG: Current playlist name: '{st.session_state.current_playlist_name}'")
+        if mcp_mode_enabled:
+            # MCP Mode: Use function calling for cross-playlist operations
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+                
+                try:
+                    # Initialize MCP manager
+                    token_info = st.session_state.token_info
+                    access_token = token_info.get('access_token') if isinstance(token_info, dict) else None
                     
-                    if st.session_state.generating_preview:
-                        print("DEBUG: Showing generating preview message")
-                        # Removed generating preview message
-                    # Always show the Preview button, but disable it based on state
-                    print("DEBUG: Rendering Preview button (always visible)")
-                    if st.session_state.generating_preview:
-                        button_text = "📋 Preview"
-                        help_text = "Preview is being generated..."
-                        is_disabled = True
-                    else:
-                        button_text = "👀 Preview"
-                        help_text = f"Preview what will be added to '{st.session_state.current_playlist_name}'"
-                        is_disabled = st.session_state.applying_changes
+                    message_placeholder.markdown("🔬 **MCP Mode Active** - Initializing...\n\n")
                     
-                    preview_clicked = st.button(
-                        button_text,
-                        key="preview_btn_always",
-                        type="secondary",
-                        disabled=is_disabled,
-                        use_container_width=True,
-                        help=help_text
-                    )
-                    print(f"DEBUG: Preview button clicked: {preview_clicked}")
+                    # Create async wrapper to handle all MCP operations in one event loop
+                    import asyncio
                     
-                    if preview_clicked:
-                        print("DEBUG: *** PREVIEW BUTTON CLICKED! ***")
-                        print(f"DEBUG: Before rerun - playlist_id: {st.session_state.current_playlist_id}")
-                        print(f"DEBUG: Before rerun - playlist_name: {st.session_state.current_playlist_name}")
-                        print(f"DEBUG: Before rerun - token exists: {st.session_state.token_info is not None}")
-                        st.session_state.generating_preview = True
-                        print("DEBUG: Set generating_preview = True, calling rerun")
-                        st.rerun()
-            
-# Handle preview generation after button click
-if st.session_state.generating_preview:
-                    print("DEBUG: generating_preview is True, calling preview function without spinner")
-                    # Removed spinner message
-                    success, message, preview_data = preview_playlist_changes(
-                        st.session_state.current_playlist_id, 
-                        ai_suggestions
-                    )
-                    
-                    print(f"DEBUG: Preview function returned: success={success}, message='{message}', preview_data keys: {list(preview_data.keys()) if isinstance(preview_data, dict) else 'Not a dict'}")
-                    st.session_state.generating_preview = False
-                    
-                    if success:
-                        print("DEBUG: Preview successful, setting show_preview = True")
-                        st.session_state.show_preview = True
-                        st.session_state.preview_data = preview_data
-                        st.rerun()
-                    else:
-                        print(f"DEBUG: Preview failed: {message}")
-                        st.error(f"❌ {message}")
-                        st.rerun()
-            
-with button_col3:
-                    # Quick apply button (for users who don't want preview)
-                    current_time = time.time()
-                    time_since_last_apply = current_time - st.session_state.last_apply_time
-                    can_apply = time_since_last_apply > 10  # 10 second cooldown
-                    
-                    # Quick Apply button - always visible but disabled when not ready
-                    is_disabled = (st.session_state.applying_changes or 
-                                 st.session_state.generating_preview or 
-                                 not can_apply)
-                    
-                    # Determine help text based on state
-                    if st.session_state.applying_changes:
-                        help_text = "⏳ Currently applying changes..."
-                    elif st.session_state.generating_preview:
-                        help_text = "Applying changes to playlist"
-                    elif not can_apply:
-                        remaining_time = int(10 - time_since_last_apply)
-                        help_text = f"⏰ Please wait {remaining_time} seconds before applying again"
-                    else:
-                        help_text = f"Directly apply AI suggestions to '{st.session_state.current_playlist_name}' without preview"
-                    
-                    if st.button("⚡ Quick Apply (No Preview)", 
-                                type="primary", 
-                                use_container_width=True,
-                                help=help_text,
-                                disabled=is_disabled):
-                            
-                            st.session_state.applying_changes = True
-                            st.session_state.last_apply_time = current_time
-                            
-                            with st.spinner("Applying changes to your Spotify playlist..."):
-                                success, message = apply_playlist_changes(
-                                    st.session_state.current_playlist_id, 
-                                    ai_suggestions
-                                )
-                            
-                            st.session_state.applying_changes = False
-                            
-                            if success:
-                                st.success(f"✅ {message}")
-                                st.info("🎵 Your playlist has been updated! Use the 'Open in Spotify' button above to listen.")
-                                # Force rerun to refresh UI and show "Open in Spotify" button
-                                st.rerun()
-                            else:
-                                st.error(f"❌ {message}")
-            
-with button_col4:
-                    # Reset Conversation button - always visible but disabled when no messages
-                    is_disabled = (st.session_state.applying_changes or 
-                                 st.session_state.generating_preview or 
-                                 len(st.session_state.messages) <= 1)  # Disable if no conversation to reset
-                    
-                    if st.button("🔄 Reset", 
-                                type="secondary",
-                                use_container_width=True,
-                                help=f"Clear conversation history for '{st.session_state.current_playlist_name}' and start fresh" if not is_disabled else "No conversation to reset",
-                                disabled=is_disabled):
+                    async def run_mcp_mode():
+                        # Create MCP manager and connect
+                        mcp_manager = MCPManager(access_token=access_token)
+                        await mcp_manager.connect()
                         
-                        if len(st.session_state.messages) > 1:  # Double-check before reset
+                        try:
+                            # Create AI manager with MCP support
+                            ai_manager_mcp = AIManager(mcp_manager=mcp_manager)
                             
-                            # Delete the conversation file
-                            success = conversation_manager.delete_conversation(
-                                st.session_state.current_user_id, 
-                                st.session_state.current_playlist_id
+                            # Prepare system message for MCP mode
+                            system_content = ai_manager_mcp.generate_system_message(
+                                has_spotify_connection=True,
+                                mcp_mode=True
                             )
                             
-                            if success:
-                                st.success("Conversation reset!")
-                            else:
-                                st.info("No conversation history to reset")
+                            # Prepare conversation history (exclude current user message)
+                            conversation_history = [{"role": "system", "content": system_content}]
+                            for msg in st.session_state.messages[:-1]:  # Exclude last user message
+                                if msg["role"] != "system":
+                                    conversation_history.append({"role": msg["role"], "content": msg["content"]})
                             
-                            # Clear current messages in session and recreate fresh conversation
-                            st.session_state.messages = []
+                            # Call AI with MCP tools
+                            result = await ai_manager_mcp.generate_with_mcp(
+                                user_message=prompt,
+                                conversation_history=conversation_history
+                            )
                             
-                            # Add system message for playlist enrichment specialist
-                            system_message = ai_manager.generate_system_message(has_spotify_connection=True)
-                            st.session_state.messages.append({
-                                "role": "system",
-                                "content": system_message
-                            })
+                            return result
                             
-                            # Add welcome message
-                            welcome_message = f"🎵 **Analyzing playlist: {st.session_state.current_playlist_name}**\n\nI'm ready to intelligently enrich this playlist! I can analyze track-to-track transitions, insert new songs at optimal positions within your existing structure, and create smooth musical bridges between contrasting tracks. I'll explain exactly where each new track should go and why it improves the flow. What would you like me to enhance?"
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": welcome_message
-                            })
-                            
-                            # Clear any preview state
-                            st.session_state.show_preview = False
-                            st.session_state.preview_data = None
-                            st.session_state.applying_changes = False
-                            st.session_state.generating_preview = False
-                            
-                            # Clear playlist cache to force reload
-                            if 'cached_playlists' in st.session_state:
-                                del st.session_state.cached_playlists
-                            if 'playlists_cache_time' in st.session_state:
-                                del st.session_state.playlists_cache_time
-                            
-                            # Force rerun to refresh everything
-                            st.rerun()
-            
-with button_col5:
-                    # Cancel/Clear button - always visible but disabled when no messages
-                    is_disabled = (st.session_state.applying_changes or 
-                                 st.session_state.generating_preview or 
-                                 len(st.session_state.messages) <= 1)  # Disable if no messages to clear
+                        finally:
+                            # Always disconnect
+                            await mcp_manager.disconnect()
                     
-                    if st.button("❌ Clear", 
-                                type="secondary",
-                                use_container_width=True,
-                                help="Clear current AI suggestions and start over" if not is_disabled else "No suggestions to clear",
-                                disabled=is_disabled):
-                        
-                        if len(st.session_state.messages) > 1:  # Double-check before clearing
-                            
-                            # Clear any AI suggestions by removing the last AI response
-                            if st.session_state.messages and st.session_state.messages[-1].get('role') == 'assistant':
-                                st.session_state.messages.pop()
-                                
-                                # Save the updated conversation
-                                if st.session_state.current_user_id and st.session_state.current_playlist_id:
-                                    conversation_manager.save_conversation(
-                                        st.session_state.current_user_id,
-                                        st.session_state.current_playlist_id,
-                                        st.session_state.messages
-                                    )
-                            
-                            # Clear any preview state
-                            st.session_state.show_preview = False
-                            st.session_state.preview_data = None
-                            st.session_state.applying_changes = False
-                            st.session_state.generating_preview = False
-                            
-                            st.success("AI suggestions cleared!")
-                            
-                            # Force rerun to refresh
-                            st.rerun()
+                    message_placeholder.markdown("🔬 **MCP Mode Active** - Calling AI...\n\n")
+                    
+                    # Run the async function in a new event loop
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    try:
+                        result = loop.run_until_complete(run_mcp_mode())
+                    finally:
+                        loop.close()
+                    
+                    full_response = result['response']
+                    
+                    # Show tool calls if any
+                    if result['tool_calls']:
+                        tool_info = f"\n\n---\n**🔧 Tools Used:** {len(result['tool_calls'])}\n"
+                        for i, tc in enumerate(result['tool_calls'], 1):
+                            tool_info += f"\n{i}. `{tc.function.name}()`"
+                        full_response += tool_info
+                    
+                    message_placeholder.markdown(full_response)
+                    
+                except Exception as e:
+                    error_message = f"❌ MCP Mode error: {str(e)}\n\nTry disabling MCP Mode in Advanced Settings."
+                    message_placeholder.markdown(error_message)
+                    full_response = error_message
+                    print(f"ERROR: MCP Mode error: {e}")
+                    import traceback
+                    traceback.print_exc()
+        else:
+            # Legacy Mode: Original playlist enrichment behavior
+            # Prepare system message for intelligent playlist enrichment
+            system_content = ai_manager.generate_system_message(has_spotify_connection=bool(st.session_state.token_info))
+            system_message = {"role": "system", "content": system_content}
 
-            # Show preview if available
+            # Get assistant response
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+                full_response = ""
+                
+                # Prepare messages for OpenAI API
+                api_messages = [system_message] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+                
+                try:
+                    for response_chunk in ai_manager.client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=api_messages,
+                        stream=True,
+                        timeout=30,
+                    ):
+                        full_response += (response_chunk.choices[0].delta.content or "")
+                        message_placeholder.markdown(full_response + "▌")
+                    message_placeholder.markdown(full_response)
+                except Exception as e:
+                    error_message = f"Sorry, I encountered a connection error: {str(e)[:100]}... Please try again."
+                    message_placeholder.markdown(error_message)
+                    full_response = error_message
+                    print(f"ERROR: OpenAI API error: {e}")
+        
+        # Add assistant response to chat history
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+        
+        # Auto-save conversation if we have an active playlist and changes were made
+        if (st.session_state.current_playlist_id and st.session_state.current_user_id and 
+            conversation_manager.has_conversation_changed(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)):
+            conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
+            # Also save the session state
+            conversation_manager.save_user_session(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.current_playlist_name)
+            print(f"DEBUG: Auto-saved conversation and session after assistant response")
+        
+        # Set flag to auto-scroll to bottom
+        st.session_state.auto_scroll = True
+
+# Handle triggered apply changes (after chat message is shown)
+if st.session_state.get('trigger_apply', False):
+    st.session_state.trigger_apply = False
+    
+    # Get AI suggestions from the conversation
+    ai_suggestions = None
+    if len(st.session_state.messages) > 0:
+        for message in reversed(st.session_state.messages):
+            if message["role"] == "assistant" and "Applying changes" not in message.get("content", ""):
+                ai_suggestions = message["content"]
+                break
+    
+    if ai_suggestions:
+        success, message = apply_playlist_changes(
+            st.session_state.current_playlist_id, 
+            ai_suggestions
+        )
+        
+        st.session_state.applying_changes = False
+        
+        # Remove the "Applying changes..." message
+        if st.session_state.messages and "Applying changes" in st.session_state.messages[-1].get("content", ""):
+            st.session_state.messages.pop()
+        
+        if success:
+            # Add success message to chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"✅ {message}\n\n🎵 Your playlist has been updated! Use the 'Open in Spotify' button to listen."
+            })
+            
+            # Clear preview after successful apply
+            st.session_state.show_preview = False
+            st.session_state.preview_data = None
+        else:
+            # Add error message to chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"❌ {message}"
+            })
+        
+        # Save conversation
+        if st.session_state.current_user_id and st.session_state.current_playlist_id:
+            conversation_manager.save_conversation(st.session_state.current_user_id, st.session_state.current_playlist_id, st.session_state.messages)
+        
+        st.rerun()
+
+# Control panel moved to bottom of page
+
+# Only stop if not logged in
+if st.session_state.token_info is None:
+    st.stop()
+
+# Show preview if available
 print(f"DEBUG: Checking preview display - show_preview: {st.session_state.get('show_preview', False)}, preview_data exists: {st.session_state.get('preview_data') is not None}")
-if st.session_state.show_preview and st.session_state.preview_data:
-                preview = st.session_state.preview_data
-                summary = preview['summary']
-                print(f"DEBUG: Displaying preview with {len(preview.get('final_tracks', []))} final tracks")
-                
-                st.markdown("### 📋 Preview: Final Playlist")
-                
-                # Show AI-recommended tracks table (both found and not found)
-                if 'final_tracks' in preview and 'playlist_info' in preview:
+if st.session_state.get('show_preview', False) and st.session_state.get('preview_data') is not None:
+    preview = st.session_state.get('preview_data')
+    summary = preview['summary']
+    print(f"DEBUG: Displaying preview with {len(preview.get('final_tracks', []))} final tracks")
+    
+    st.markdown("### 📋 Preview: Final Playlist")
+    
+    # Show AI-recommended tracks table (both found and not found)
+    if 'final_tracks' in preview and 'playlist_info' in preview:
                     final_tracks = preview['final_tracks']
                     not_found_tracks = preview.get('tracks_not_found', [])
                     playlist_info = preview['playlist_info']
@@ -1289,122 +1251,252 @@ if st.session_state.show_preview and st.session_state.preview_data:
                     
                     if len(preview['tracks_not_found']) > 10:
                         st.markdown(f"*... and {len(preview['tracks_not_found']) - 10} more not found*")
+    
+    st.markdown("---")
+
+# Chat input processing - only when logged in (back to original position)
+if st.session_state.token_info is not None:
+    if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."):
+        st.session_state.pending_prompt = prompt
+        st.rerun()
+
+# Fixed bottom container for control buttons only - only when logged in
+if st.session_state.token_info is not None:
+    
+    # Use a placeholder container for the actual control buttons
+    bottom_placeholder = st.empty()
+    
+    with bottom_placeholder.container():
+        
+        # Playlist Control Panel - Show when conversation is loaded
+        if (st.session_state.current_playlist_id and 
+            st.session_state.current_playlist_name):
+            
+            # Control buttons first (above input)
+            st.markdown(f"**🎛️ {st.session_state.current_playlist_name}**")
+            
+            # Initialize session state for preview and apply tracking
+            if 'show_preview' not in st.session_state:
+                st.session_state.show_preview = False
+            if 'preview_data' not in st.session_state:
+                st.session_state.preview_data = None
+            if 'last_apply_time' not in st.session_state:
+                st.session_state.last_apply_time = 0
+            if 'applying_changes' not in st.session_state:
+                st.session_state.applying_changes = False
+            if 'generating_preview' not in st.session_state:
+                st.session_state.generating_preview = False
+
+            # Get AI suggestions from the conversation (use the latest assistant message)
+            ai_suggestions = None
+            if len(st.session_state.messages) > 0:
+                for message in reversed(st.session_state.messages):
+                    if message["role"] == "assistant":
+                        ai_suggestions = message["content"]
+                        break
+
+            # Determine button states
+            has_conversation = len(st.session_state.messages) > 1
+            has_ai_suggestions = ai_suggestions is not None
+
+            # Show all 5 buttons
+            button_col1, button_col2, button_col3, button_col4, button_col5 = st.columns(5)
+
+            with button_col1:
+                # Open in Spotify button - always enabled
+                spotify_url = f"https://open.spotify.com/playlist/{st.session_state.current_playlist_id}"
+                # Use HTML link with target="_blank" to open in new tab
+                st.markdown(f"""
+                    <a href="{spotify_url}" target="_blank" style="
+                        display: inline-block;
+                        padding: 0.5rem 1rem;
+                        background-color: #1DB954;
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 0.5rem;
+                        width: 100%;
+                        text-align: center;
+                        box-sizing: border-box;
+                        font-size: 14px;
+                        font-weight: 400;
+                        transition: all 0.2s;
+                    " onmouseover="this.style.backgroundColor='#1ed760'" 
+                       onmouseout="this.style.backgroundColor='#1DB954'"
+                       title="Open in Spotify">
+                        🎧 Spotify
+                    </a>
+                """, unsafe_allow_html=True)
+
+            with button_col2:
+                # Preview button
+                is_disabled = (st.session_state.generating_preview or 
+                             st.session_state.applying_changes or 
+                             not has_ai_suggestions)
                 
-                st.markdown("---")
+                if st.session_state.generating_preview:
+                    button_text = "📋 Generating..."
+                else:
+                    button_text = "👀 Preview"
                 
-                # Apply and Cancel buttons - keep consistent with main button layout
-                col_w, col_x, col_y, col_z, col_v = st.columns(5)
+                if st.button(button_text, disabled=is_disabled, use_container_width=True):
+                    st.session_state.generating_preview = True
+                    st.rerun()
+
+            with button_col3:
+                # Apply button - only enabled after preview is generated
+                import time
+                current_time = time.time()
+                time_since_last_apply = current_time - st.session_state.last_apply_time
+                can_apply = time_since_last_apply > 10  # 10 second cooldown
+                has_preview = st.session_state.get('show_preview', False) and st.session_state.get('preview_data') is not None
                 
-                with col_w:
-                    # Open in Spotify button with icon (consistent with main layout)
-                    spotify_url = f"https://open.spotify.com/playlist/{st.session_state.current_playlist_id}"
-                    spotify_icon_b64 = st.session_state.get("spotify_icon_b64", "")
-                    if spotify_icon_b64:
-                        st.markdown(f"""
-                            <div style="text-align: center;">
-                                <a href="{spotify_url}" target="_blank" style="
-                                    display: inline-block;
-                                    padding: 0.5rem;
-                                    background-color: #1DB954;
-                                    color: white;
-                                    text-decoration: none;
-                                    border-radius: 0.5rem;
-                                    width: 100%;
-                                    text-align: center;
-                                    box-sizing: border-box;
-                                    transition: all 0.2s;
-                                " onmouseover="this.style.backgroundColor='#1ed760'" 
-                                   onmouseout="this.style.backgroundColor='#1DB954'"
-                                   title="Open in Spotify">
-                                    <img src="data:image/png;base64,{spotify_icon_b64}" style="height: 20px; vertical-align: middle;">
-                                </a>
-                            </div>
-                        """, unsafe_allow_html=True)
+                is_disabled = (st.session_state.applying_changes or 
+                             st.session_state.generating_preview or 
+                             not can_apply or 
+                             not has_preview)
+                
+                if st.session_state.applying_changes:
+                    button_text = "⏳ Applying..."
+                    help_text = "Currently applying changes..."
+                elif st.session_state.generating_preview:
+                    button_text = "✅ Apply"
+                    help_text = "Please wait for preview to complete"
+                elif not has_preview:
+                    button_text = "✅ Apply"
+                    help_text = "Please generate a preview first using the 'Preview' button"
+                elif not can_apply:
+                    remaining_time = int(10 - time_since_last_apply)
+                    button_text = "✅ Apply"
+                    help_text = f"⏰ Please wait {remaining_time} seconds before applying again"
+                else:
+                    button_text = "✅ Apply"
+                    help_text = f"Apply the previewed changes to '{st.session_state.current_playlist_name}'"
+                
+                if st.button(button_text, 
+                            type="primary", 
+                            use_container_width=True,
+                            help=help_text,
+                            disabled=is_disabled):
+                    
+                    st.session_state.applying_changes = True
+                    st.session_state.last_apply_time = current_time
+                    
+                    # Add a chat message instead of spinner
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "⏳ Applying changes to your Spotify playlist..."
+                    })
+                    
+                    # Set flag to trigger apply on next rerun
+                    st.session_state.trigger_apply = True
+                    st.rerun()
+
+            with button_col4:
+                # Reset Conversation button - enabled when conversation exists
+                is_disabled = (st.session_state.applying_changes or 
+                             st.session_state.generating_preview or 
+                             not has_conversation)
+                
+                if not has_conversation:
+                    help_text = "No conversation to reset"
+                else:
+                    help_text = f"Clear conversation history for '{st.session_state.current_playlist_name}' and start fresh"
+                
+                if st.button("🔄 Reset", 
+                            type="secondary",
+                            use_container_width=True,
+                            help=help_text,
+                            disabled=is_disabled):
+                    
+                    # Delete the conversation file
+                    success = conversation_manager.delete_conversation(
+                        st.session_state.current_user_id, 
+                        st.session_state.current_playlist_id
+                    )
+                    
+                    if success:
+                        st.success("Conversation reset!")
                     else:
-                        # Fallback to text if icon not loaded
-                        st.markdown(f"""
-                            <div style="text-align: center;">
-                                <a href="{spotify_url}" target="_blank" style="
-                                    display: inline-block;
-                                    padding: 0.5rem;
-                                    background-color: #1DB954;
-                                    color: white;
-                                    text-decoration: none;
-                                    border-radius: 0.5rem;
-                                    width: 100%;
-                                    text-align: center;
-                                    box-sizing: border-box;
-                                    font-size: 14px;
-                                    transition: all 0.2s;
-                                " onmouseover="this.style.backgroundColor='#1ed760'" 
-                                   onmouseout="this.style.backgroundColor='#1DB954'"
-                                   title="Open in Spotify">
-                                    🎧 Spotify
-                                </a>
-                            </div>
-                        """, unsafe_allow_html=True)
+                        st.info("No conversation history to reset")
+                    
+                    # Clear current messages in session and recreate fresh conversation
+                    st.session_state.messages = []
+                    
+                    # Add system message for playlist enrichment specialist
+                    system_message = ai_manager.generate_system_message(has_spotify_connection=True)
+                    st.session_state.messages.append({
+                        "role": "system",
+                        "content": system_message
+                    })
+                    
+                    # Add welcome message
+                    welcome_message = f"🎵 **Analyzing playlist: {st.session_state.current_playlist_name}**\n\nI'm ready to intelligently enrich this playlist! I can analyze track-to-track transitions, insert new songs at optimal positions within your existing structure, and create smooth musical bridges between contrasting tracks. I'll explain exactly where each new track should go and why it improves the flow. What would you like me to enhance?"
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": welcome_message
+                    })
+                    
+                    # Clear any preview state
+                    st.session_state.show_preview = False
+                    st.session_state.preview_data = None
+                    st.session_state.applying_changes = False
+                    st.session_state.generating_preview = False
+                    
+                    st.rerun()
+
+            with button_col5:
+                # Clear/Cancel button - enabled when AI suggestions exist
+                is_disabled = (st.session_state.applying_changes or 
+                             st.session_state.generating_preview or 
+                             not has_ai_suggestions)
                 
-                with col_z:  # Changed from col_y to col_z
-                    # Check if enough time has passed since last apply (prevent rapid clicking)
-                    current_time = time.time()
-                    time_since_last_apply = current_time - st.session_state.last_apply_time
-                    can_apply = time_since_last_apply > 10  # 10 second cooldown
+                if not has_ai_suggestions:
+                    help_text = "No AI suggestions to clear"
+                else:
+                    help_text = "Clear current AI suggestions and start over"
+                
+                if st.button("❌ Clear", 
+                            type="secondary",
+                            use_container_width=True,
+                            help=help_text,
+                            disabled=is_disabled):
                     
-                    # Apply Changes button - always visible but disabled when not ready
-                    is_disabled = (st.session_state.applying_changes or 
-                                 st.session_state.generating_preview or 
-                                 not can_apply)
-                    
-                    # Determine help text based on state
-                    if st.session_state.applying_changes:
-                        help_text = "⏳ Currently applying changes..."
-                    elif st.session_state.generating_preview:
-                        help_text = "Apply the changes shown above to your Spotify playlist"
-                    elif not can_apply:
-                        remaining_time = int(10 - time_since_last_apply)
-                        help_text = f"⏰ Please wait {remaining_time} seconds before applying again"
-                    else:
-                        help_text = "Apply the changes shown above to your Spotify playlist"
-                    
-                    if st.button("🎵 Apply Changes", 
-                                type="primary", 
-                                use_container_width=True,
-                                help=help_text,
-                                disabled=is_disabled):
+                    # Clear any AI suggestions by removing the last AI response
+                    if st.session_state.messages and st.session_state.messages[-1].get('role') == 'assistant':
+                        st.session_state.messages.pop()
                         
-                        if summary['will_add'] > 0:
-                            st.session_state.applying_changes = True
-                            st.session_state.last_apply_time = current_time
-                            
-                            with st.spinner("Applying changes to your Spotify playlist..."):
-                                success, message = apply_playlist_changes(
-                                    st.session_state.current_playlist_id, 
-                                    ai_suggestions
-                                )
-                            
-                            st.session_state.applying_changes = False
-                            
-                            if success:
-                                st.success(f"✅ {message}")     
-                                st.info("🎵 Your playlist has been updated! Use the 'Open in Spotify' button above to listen.")                           
-                                # Clear preview
-                                st.session_state.show_preview = False
-                                st.session_state.preview_data = None
-                                # Force rerun to refresh UI and show "Open in Spotify" button
-                                st.rerun()
-                            else:
-                                st.error(f"❌ {message}")
-                        else:
-                            st.warning("No new tracks to add to the playlist.")
+                        # Save the updated conversation
+                        conversation_manager.save_conversation(
+                            st.session_state.current_user_id,
+                            st.session_state.current_playlist_id,
+                            st.session_state.messages
+                        )
+                    
+                    # Clear any preview state
+                    st.session_state.show_preview = False
+                    st.session_state.preview_data = None
+                    st.session_state.applying_changes = False
+                    st.session_state.generating_preview = False
+                    
+                    st.success("AI suggestions cleared!")
+                    st.rerun()
+
+            # Handle preview generation after button click
+            if st.session_state.generating_preview:
+                success, message, preview_data = preview_playlist_changes(
+                    st.session_state.current_playlist_id, 
+                    ai_suggestions
+                )
                 
-                with col_v:  # Changed from col_y to col_v
-                    if st.button("❌ Cancel", 
-                                type="secondary", 
-                                use_container_width=True,
-                                help="Cancel and don't apply any changes"):
-                        st.session_state.show_preview = False
-                        st.session_state.preview_data = None
-                        st.rerun()
+                st.session_state.generating_preview = False
+                
+                if success:
+                    st.session_state.show_preview = True
+                    st.session_state.preview_data = preview_data
+                    st.rerun()
+                else:
+                    st.error(f"❌ {message}")
+                    st.rerun()
 
 # Footer
 st.markdown("**Jemya** - Your AI-powered Spotify playlist generator 🎵✨")

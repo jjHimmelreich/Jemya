@@ -3,6 +3,8 @@ __pycache__/*
 conversations/*
 .DS_Store
 .cache
+.cache-*
+.spotify_token_cache*
 try.py
 
 # Configuration with secrets (keep local only)
@@ -43,9 +45,31 @@ debug_*.py
 *_debug.py
 analyze_*.py
 
+# Playwright and browser testing (DO NOT COMMIT)
+browser_monitor.py
+layout_monitor.py
+login_monitor.py
+quick_screenshot.py
+screenshot_summary.py
+test_login_ui.py
+
+# Generated screenshots and layout images (DO NOT COMMIT)
+*.png
+screenshots/*
+layout_*.png
+state_*.png
+streamlit_*.png
+layout_analysis.json
+
+# SSL certificates (DO NOT COMMIT)
+cert.pem
+key.pem
+*.pem
+
 # Build artifacts and cache
 *.pyc
 .pytest_cache/
+.coverage
 .coverage
 
 # VS Code and IDE files

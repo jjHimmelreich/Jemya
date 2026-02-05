@@ -14,7 +14,7 @@ Spotify Playlists Generator and Analyzer
 # conf.py
 SPOTIFY_CLIENT_ID = "your_spotify_client_id"
 SPOTIFY_CLIENT_SECRET = "your_spotify_client_secret"
-SPOTIFY_REDIRECT_URI = "http://localhost:8501/callback"
+SPOTIFY_REDIRECT_URI = "http://localhost:5555/callback"
 OPENAI_API_KEY = "your_openai_api_key"
 ```
 
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 3. Run the application:
 ```bash
-streamlit run app.py
+streamlit run app.py --server.port 5555
 ```
 
 ### Production Deployment

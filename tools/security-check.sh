@@ -22,7 +22,7 @@ FORBIDDEN_FILES=(
     "aws-credentials.txt"
     "*-credentials.*"
     "*-secrets.*"
-    "conf.py"
+    "^conf.py$"
 )
 
 # Sensitive patterns that should not appear in committed files

@@ -1,0 +1,23 @@
+[server]
+# Configure server settings for production
+# headless = true
+# port = 8503
+# enableCORS = false
+# enableXsrfProtection = true
+
+[browser]
+# Hide toolbar and menu items
+# gatherUsageStats = false
+# showErrorDetails = false
+
+[theme]
+# Optional: Configure theme for better production look
+# primaryColor = "#1DB954"
+# backgroundColor = "#FFFFFF"
+# secondaryBackgroundColor = "#F0F2F6"
+# textColor = "#262730"
+
+[ui]
+# Hide development-related UI elements
+hideTopBar = false
+# Note: hideSidebarNav is not a valid config option in current Streamlit version

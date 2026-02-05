@@ -25,6 +25,8 @@ class SpotifyManager:
         self.redirect_uri = conf.SPOTIFY_REDIRECT_URI
         self.scope = "user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state"
         self.openai_client = OpenAI(api_key=conf.OPENAI_API_KEY)
+        # Use a persistent cache file for token storage
+        self.cache_path = ".spotify_token_cache"
     
     def get_spotify_oauth(self) -> SpotifyOAuth:
         """Get configured SpotifyOAuth instance"""
@@ -32,7 +34,8 @@ class SpotifyManager:
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
-            scope=self.scope
+            scope=self.scope,
+            cache_path=self.cache_path  # Enable persistent file caching
         )
     
     def refresh_spotify_token_if_needed(self) -> Optional[Dict[str, Any]]:
@@ -75,6 +78,67 @@ class SpotifyManager:
                 print(f"Error getting user info: {e}")
         return None
     
+    def create_playlist(self, name: str, description: str = "", public: bool = False) -> Tuple[bool, str, Optional[str]]:
+        """Create a new playlist for the user
+        
+        Returns:
+            Tuple of (success: bool, message: str, playlist_id: Optional[str])
+        """
+        token_info = self.refresh_spotify_token_if_needed()
+        if not token_info or not isinstance(token_info, dict) or 'access_token' not in token_info:
+            return False, "Not authenticated with Spotify", None
+        
+        try:
+            sp = spotipy.Spotify(auth=token_info['access_token'])
+            user_id = sp.current_user()['id']
+            
+            # Create the playlist
+            playlist = sp.user_playlist_create(
+                user=user_id,
+                name=name,
+                public=public,
+                description=description
+            )
+            
+            playlist_id = playlist['id']
+            print(f"DEBUG: Created playlist '{name}' with ID: {playlist_id}")
+            
+            return True, f"Playlist '{name}' created successfully!", playlist_id
+            
+        except Exception as e:
+            print(f"ERROR: Failed to create playlist: {e}")
+            return False, f"Failed to create playlist: {str(e)}", None
+    
+    @staticmethod
+    def fetch_all_playlists_from_spotify(sp: spotipy.Spotify) -> List[Dict[str, Any]]:
+        """Fetch all playlists from Spotify API (no session state dependencies)
+        
+        Args:
+            sp: Authenticated Spotify client
+            
+        Returns:
+            List of raw playlist items from Spotify API
+        """
+        playlists = []
+        offset = 0
+        limit = 50
+        
+        while True:
+            response = sp.current_user_playlists(offset=offset, limit=limit)
+            
+            if not response or 'items' not in response:
+                break
+            
+            playlists.extend(response['items'])
+            
+            # Stop if we got fewer items than requested (end of list)
+            if len(response['items']) < limit:
+                break
+            
+            offset += limit
+        
+        return playlists
+    
     def get_user_playlists(self) -> List[Dict[str, Any]]:
         """Get user's Spotify playlists with caching to prevent constant refetching"""
         # Check if playlists are already cached and still valid
@@ -92,24 +156,8 @@ class SpotifyManager:
                 sp = spotipy.Spotify(auth=token_info['access_token'])
                 print("DEBUG: Created Spotify client, fetching playlists...")
                 
-                playlists = []
-                offset = 0
-                limit = 50
-                
-                while True:
-                    print(f"DEBUG: Fetching playlists offset={offset}, limit={limit}")
-                    response = sp.current_user_playlists(offset=offset, limit=limit)
-                    print(f"DEBUG: Response type: {type(response)}, has items: {'items' in response if response else False}")
-                    
-                    if response and 'items' in response:
-                        playlists.extend(response['items'])
-                        print(f"DEBUG: Added {len(response['items'])} playlists, total: {len(playlists)}")
-                        
-                        if len(response['items']) < limit:
-                            break
-                        offset += limit
-                    else:
-                        break
+                # Use shared helper method
+                playlists = self.fetch_all_playlists_from_spotify(sp)
                 
                 print(f"DEBUG: Returning {len(playlists)} playlists (cached)")
                 # Cache the results

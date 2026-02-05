@@ -1,11 +1,10 @@
 name: 🔄 Continuous Integration
 
 on:
-  # Temporarily disabled
-  # push:
-  #   branches: [ main, develop ]
-  # pull_request:
-  #   branches: [ main ]
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:  # Allow manual triggers only
 
 env:

@@ -4,7 +4,7 @@
 # Spotify Configuration
 SPOTIFY_CLIENT_ID = "your_spotify_client_id_here"
 SPOTIFY_CLIENT_SECRET = "your_spotify_client_secret_here"
-SPOTIFY_REDIRECT_URI = "http://localhost:8501/callback"
+SPOTIFY_REDIRECT_URI = "http://localhost:5555/callback"
 
 # OpenAI Configuration  
 OPENAI_API_KEY = "your_openai_api_key_here"

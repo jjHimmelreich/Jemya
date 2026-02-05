@@ -3,6 +3,9 @@ streamlit>=1.28.0
 spotipy==2.25.1
 openai==1.59.3
 
+# MCP (Model Context Protocol) - Requires Python 3.10+
+mcp>=1.25.0
+
 # Additional utilities
 requests>=2.31.0
 python-dotenv>=1.0.0
