@@ -94,7 +94,7 @@ jobs:
     # 🐍 Python Security Scanning with Bandit
     - name: 🔒 Install Python security tools
       run: |
-        pip install bandit[toml] pip-audit semgrep
+        pip install bandit[toml] pip-audit
 
     - name: 🔒 Run Bandit security scan
       run: |
