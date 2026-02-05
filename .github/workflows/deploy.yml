@@ -38,6 +38,8 @@ jobs:
   deployment-gate:
     name: 🚪 Deployment Gate
     runs-on: ubuntu-latest
+    # Only run if manually triggered OR if CI succeeded
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     outputs:
       should_deploy: ${{ steps.gate.outputs.should_deploy }}
       image_tag: ${{ steps.gate.outputs.image_tag }}
