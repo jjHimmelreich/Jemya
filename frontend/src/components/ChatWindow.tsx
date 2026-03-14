@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageBubble } from './MessageBubble';
-import type { ChatMessage, TokenInfo } from '../types';
+import type { ChatMessage } from '../types';
 import styles from './ChatWindow.module.css';
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   onSend: (text: string) => void;
   lastSuggestions?: string[] | null;
   onPreview?: () => void;
+  previewLoading?: boolean;
   disabled?: boolean;
 }
 
@@ -20,6 +21,7 @@ export function ChatWindow({
   onSend,
   lastSuggestions,
   onPreview,
+  previewLoading,
   disabled,
 }: Props) {
   const [input, setInput] = useState('');
@@ -69,8 +71,8 @@ export function ChatWindow({
       {lastSuggestions && lastSuggestions.length > 0 && (
         <div className={styles.actionBar}>
           {onPreview && (
-            <button className={styles.previewBtn} onClick={onPreview}>
-              Preview &amp; Save
+            <button className={styles.previewBtn} onClick={onPreview} disabled={previewLoading}>
+              {previewLoading ? 'Searching…' : 'Preview & Save'}
             </button>
           )}
         </div>

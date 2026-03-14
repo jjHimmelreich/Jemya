@@ -244,6 +244,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
                 onSend={chat.send}
                 lastSuggestions={chat.lastSuggestions}
                 onPreview={handlePreview}
+                previewLoading={previewLoading}
               />
             </div>
           </>

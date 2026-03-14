@@ -88,6 +88,10 @@
 .applyBtn:hover {
   background: #4a90ba;
 }
+.previewBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 .inputRow {
   display: flex;
