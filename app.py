@@ -49,8 +49,8 @@ def switch_to_playlist_conversation(user_id, playlist_id, playlist_name):
     
     # Add system and welcome messages if this is a new conversation
     if not messages:
-        # Add system message for playlist enrichment specialist
-        system_message = ai_manager.generate_system_message(has_spotify_connection=True)
+        # Add system message (unified hybrid mode)
+        system_message = ai_manager.generate_system_message(has_spotify_connection=True, mcp_mode=True)
         
         st.session_state.messages.append({
             "role": "system",
@@ -58,7 +58,7 @@ def switch_to_playlist_conversation(user_id, playlist_id, playlist_name):
         })
         
         # Add welcome message
-        welcome_message = f"🎵 **Analyzing playlist: {playlist_name}**\n\nI'm ready to intelligently enrich this playlist! I can analyze track-to-track transitions, insert new songs at optimal positions within your existing structure, and create smooth musical bridges between contrasting tracks. I'll explain exactly where each new track should go and why it improves the flow. What would you like me to enhance?"
+        welcome_message = f"🎵 **Analyzing playlist: {playlist_name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!"
         st.session_state.messages.append({
             "role": "assistant",
             "content": welcome_message
@@ -308,26 +308,14 @@ if st.session_state.token_info is None:
 # Sidebar for Spotify functionality
 st.sidebar.title("Jemya - AI Playlist Generator")
 
-# MCP Mode toggle (experimental feature)
+# MCP Mode toggle
 st.sidebar.markdown("---")
-with st.sidebar.expander("⚙️ Advanced Settings", expanded=False):
-    mcp_mode = st.checkbox(
-        "🔬 Enable MCP Mode (Experimental)",
-        value=st.session_state.get('mcp_mode', False),
-        help="Enable Model Context Protocol for cross-playlist operations. Allows AI to read and combine multiple playlists."
-    )
-    st.session_state.mcp_mode = mcp_mode
-    
-    if mcp_mode:
-        st.info(
-            "🎯 **MCP Mode Enabled**\n\n"
-            "AI can now:\n"
-            "• Read multiple playlists\n"
-            "• Combine playlists\n"
-            "• Merge & deduplicate\n"
-            "• Split playlists\n\n"
-            "Try: *'Combine my workout playlists'*"
-        )
+mcp_mode = st.sidebar.checkbox(
+    "🔬 MCP Mode",
+    value=st.session_state.get('mcp_mode', False),
+    help="Enable cross-playlist operations (combine, merge, split). Experimental."
+)
+st.session_state.mcp_mode = mcp_mode
 
 st.sidebar.markdown("---")
 
@@ -441,6 +429,10 @@ else:
                 st.session_state.messages = []
                 st.rerun()
 
+    # MCP Mode is always enabled (hybrid approach)
+    if 'mcp_mode' not in st.session_state:
+        st.session_state.mcp_mode = True  # Always use unified hybrid mode
+    
     # Show playlists
     st.sidebar.markdown("---")
     st.sidebar.subheader("📚 Your Playlists")
@@ -872,115 +864,128 @@ if st.session_state.token_info is not None:
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Check if MCP mode is enabled
-        mcp_mode_enabled = st.session_state.get('mcp_mode', False)
-        
-        if mcp_mode_enabled:
-            # MCP Mode: Use function calling for cross-playlist operations
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
+        # Always use unified hybrid MCP mode (combines enrichment + cross-playlist)
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            
+            try:
+                # Initialize MCP manager
+                token_info = st.session_state.token_info
+                access_token = token_info.get('access_token') if isinstance(token_info, dict) else None
                 
-                try:
-                    # Initialize MCP manager
-                    token_info = st.session_state.token_info
-                    access_token = token_info.get('access_token') if isinstance(token_info, dict) else None
-                    
-                    message_placeholder.markdown("🔬 **MCP Mode Active** - Initializing...\n\n")
-                    
-                    # Create async wrapper to handle all MCP operations in one event loop
-                    import asyncio
-                    
-                    async def run_mcp_mode():
-                        # Create MCP manager and connect
-                        mcp_manager = MCPManager(access_token=access_token)
-                        await mcp_manager.connect()
-                        
-                        try:
-                            # Create AI manager with MCP support
-                            ai_manager_mcp = AIManager(mcp_manager=mcp_manager)
-                            
-                            # Prepare system message for MCP mode
-                            system_content = ai_manager_mcp.generate_system_message(
-                                has_spotify_connection=True,
-                                mcp_mode=True
-                            )
-                            
-                            # Prepare conversation history (exclude current user message)
-                            conversation_history = [{"role": "system", "content": system_content}]
-                            for msg in st.session_state.messages[:-1]:  # Exclude last user message
-                                if msg["role"] != "system":
-                                    conversation_history.append({"role": msg["role"], "content": msg["content"]})
-                            
-                            # Call AI with MCP tools
-                            result = await ai_manager_mcp.generate_with_mcp(
-                                user_message=prompt,
-                                conversation_history=conversation_history
-                            )
-                            
-                            return result
-                            
-                        finally:
-                            # Always disconnect
-                            await mcp_manager.disconnect()
-                    
-                    message_placeholder.markdown("🔬 **MCP Mode Active** - Calling AI...\n\n")
-                    
-                    # Run the async function in a new event loop
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                message_placeholder.markdown("🎵 **Analyzing your request...**\n\n")
+                
+                # Create async wrapper to handle all MCP operations in one event loop
+                import asyncio
+                
+                async def run_mcp_mode():
+                    # Create MCP manager and connect
+                    mcp_manager = MCPManager(access_token=access_token)
+                    await mcp_manager.connect()
                     
                     try:
-                        result = loop.run_until_complete(run_mcp_mode())
+                        # Create AI manager with MCP support
+                        ai_manager_mcp = AIManager(mcp_manager=mcp_manager)
+                        
+                        # Prepare system message (unified hybrid mode)
+                        system_content = ai_manager_mcp.generate_system_message(
+                            has_spotify_connection=True,
+                            mcp_mode=True  # Always use unified hybrid message
+                        )
+                        
+                        # Prepare conversation history (exclude current user message)
+                        conversation_history = [{"role": "system", "content": system_content}]
+                        for msg in st.session_state.messages[:-1]:  # Exclude last user message
+                            if msg["role"] != "system":
+                                conversation_history.append({"role": msg["role"], "content": msg["content"]})
+                        
+                        # Call AI with MCP tools
+                        result = await ai_manager_mcp.generate_with_mcp(
+                            user_message=prompt,
+                            conversation_history=conversation_history
+                        )
+                        
+                        return result
+                        
                     finally:
-                        loop.close()
+                        # Always disconnect
+                        await mcp_manager.disconnect()
+                
+                message_placeholder.markdown("🎵 **Processing with AI...**\n\n")
+                
+                # Run the async function in a new event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    result = loop.run_until_complete(run_mcp_mode())
+                finally:
+                    loop.close()
+                
+                full_response = result['response']
+                
+                # Phase 5: Check for write operations and show preview
+                write_ops = MCPManager.extract_write_operations(result.get('tool_calls', []))
+                
+                if write_ops:
+                    # Store pending write operations for confirmation
+                    st.session_state.pending_mcp_writes = {
+                        'operations': write_ops,
+                        'full_result': result,
+                        'ai_response': full_response
+                    }
                     
-                    full_response = result['response']
+                    # Show preview message
+                    preview_message = full_response + "\n\n---\n\n"
+                    preview_message += f"⚠️ **Write Operations Detected ({len(write_ops)} operations)**\n\n"
+                    preview_message += "The AI wants to modify your Spotify data:\n\n"
                     
-                    # Show tool calls if any
+                    for i, op in enumerate(write_ops, 1):
+                        op_name = op['operation'].replace('_', ' ').title()
+                        preview_message += f"**{i}. {op_name}**\n"
+                        
+                        args = op['arguments']
+                        if op['operation'] == 'create_playlist':
+                            preview_message += f"   - Name: {args.get('name', 'Unnamed')}\n"
+                            if args.get('description'):
+                                preview_message += f"   - Description: {args.get('description')}\n"
+                            preview_message += f"   - Visibility: {'Public' if args.get('public', False) else 'Private'}\n"
+                        
+                        elif op['operation'] == 'add_tracks':
+                            track_count = len(args.get('track_uris', []))
+                            preview_message += f"   - Tracks to add: {track_count}\n"
+                            if 'position' in args:
+                                preview_message += f"   - Position: {args['position']}\n"
+                        
+                        elif op['operation'] == 'remove_tracks':
+                            track_count = len(args.get('track_uris', []))
+                            preview_message += f"   - Tracks to remove: {track_count}\n"
+                        
+                        elif op['operation'] == 'replace_playlist':
+                            track_count = len(args.get('track_uris', []))
+                            preview_message += f"   - Replace with {track_count} tracks\n"
+                        
+                        preview_message += "\n"
+                    
+                    preview_message += "📋 Please review these changes below and click **Execute** to apply them or **Cancel** to discard.\n"
+                    full_response = preview_message
+                else:
+                    # No write operations, show normal response
                     if result['tool_calls']:
                         tool_info = f"\n\n---\n**🔧 Tools Used:** {len(result['tool_calls'])}\n"
                         for i, tc in enumerate(result['tool_calls'], 1):
                             tool_info += f"\n{i}. `{tc.function.name}()`"
                         full_response += tool_info
-                    
-                    message_placeholder.markdown(full_response)
-                    
-                except Exception as e:
-                    error_message = f"❌ MCP Mode error: {str(e)}\n\nTry disabling MCP Mode in Advanced Settings."
-                    message_placeholder.markdown(error_message)
-                    full_response = error_message
-                    print(f"ERROR: MCP Mode error: {e}")
-                    import traceback
-                    traceback.print_exc()
-        else:
-            # Legacy Mode: Original playlist enrichment behavior
-            # Prepare system message for intelligent playlist enrichment
-            system_content = ai_manager.generate_system_message(has_spotify_connection=bool(st.session_state.token_info))
-            system_message = {"role": "system", "content": system_content}
-
-            # Get assistant response
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                full_response = ""
                 
-                # Prepare messages for OpenAI API
-                api_messages = [system_message] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+                message_placeholder.markdown(full_response)
                 
-                try:
-                    for response_chunk in ai_manager.client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=api_messages,
-                        stream=True,
-                        timeout=30,
-                    ):
-                        full_response += (response_chunk.choices[0].delta.content or "")
-                        message_placeholder.markdown(full_response + "▌")
-                    message_placeholder.markdown(full_response)
-                except Exception as e:
-                    error_message = f"Sorry, I encountered a connection error: {str(e)[:100]}... Please try again."
-                    message_placeholder.markdown(error_message)
-                    full_response = error_message
-                    print(f"ERROR: OpenAI API error: {e}")
+            except Exception as e:
+                error_message = f"❌ Error: {str(e)}\n\nPlease try again or rephrase your request."
+                message_placeholder.markdown(error_message)
+                full_response = error_message
+                print(f"ERROR: AI interaction error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": full_response})
@@ -1060,203 +1065,361 @@ if st.session_state.get('show_preview', False) and st.session_state.get('preview
     
     # Show AI-recommended tracks table (both found and not found)
     if 'final_tracks' in preview and 'playlist_info' in preview:
-                    final_tracks = preview['final_tracks']
-                    not_found_tracks = preview.get('tracks_not_found', [])
-                    playlist_info = preview['playlist_info']
+        final_tracks = preview['final_tracks']
+        not_found_tracks = preview.get('tracks_not_found', [])
+        playlist_info = preview['playlist_info']
+        
+        # Extract playlist owner information
+        owner_data = playlist_info.get('owner', {})
+        if isinstance(owner_data, dict):
+            owner_name = owner_data.get('display_name', 'Unknown')
+            owner_id = owner_data.get('id', '')
+        else:
+            owner_name = 'Unknown'
+            owner_id = ''
+        
+        # Check if it's a public playlist
+        is_public = playlist_info.get('public', False)
+        
+        # Calculate total AI recommendations
+        total_ai_tracks = len(final_tracks) + len(not_found_tracks)
+        
+        # Create formatted table of AI recommendations
+        tracks_table = f"## 🎵 {playlist_info.get('name', 'Playlist')} (Preview)\\n\\n"
+        tracks_table += f"**Created by:** {owner_name}"
+        # Only show user ID if no display name exists
+        if not owner_name or owner_name == 'Unknown':
+            if owner_id:
+                tracks_table += f" (@{owner_id})"
+        tracks_table += f" • **{total_ai_tracks} AI recommendations** ({len(final_tracks)} found, {len(not_found_tracks)} not found) • {'Public' if is_public else 'Private'}\\n\\n"
+        tracks_table += "| # | Track | Artist | Album | Duration | Start Time | Status |\\n"
+        tracks_table += "|---|-------|--------|-------|----------|------------|--------|\\n"
+        
+        # First, create a map of found tracks by their original names
+        found_tracks_map = {}
+        for track in final_tracks:
+            # Try to match with original AI suggestions by name similarity
+            found_tracks_map[track['name'].lower()] = track
+        
+        # Use the properly correlated track results
+        track_results = preview.get('track_results', [])
+        
+        cumulative_time_ms = 0
+        track_counter = 1
+        
+        # Show tracks in AI-recommended order using properly correlated results
+        if track_results:
+            for result in track_results:
+                if result['status'] == 'found':
+                    found_track = result['found_track']
                     
-                    # Extract playlist owner information
-                    owner_data = playlist_info.get('owner', {})
-                    if isinstance(owner_data, dict):
-                        owner_name = owner_data.get('display_name', 'Unknown')
-                        owner_id = owner_data.get('id', '')
+                    # Format start time
+                    start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
+                    
+                    # Get current track duration and format it
+                    duration_ms = found_track.get('duration_ms', 0)
+                    duration_str = spotify_manager.format_time_human_readable(duration_ms)
+                    
+                    # Truncate long names for table readability
+                    full_track_name = found_track.get('name', 'Unknown')
+                    display_track_name = full_track_name[:40]
+                    if len(full_track_name) > 40:
+                        display_track_name += "..."
+                    
+                    # Create clickable link if Spotify URL exists
+                    spotify_url = found_track.get('spotify_url', '')
+                    if spotify_url:
+                        track_name_display = f"[{display_track_name}]({spotify_url})"
                     else:
-                        owner_name = 'Unknown'
-                        owner_id = ''
+                        track_name_display = display_track_name
                     
-                    # Check if it's a public playlist
-                    is_public = playlist_info.get('public', False)
+                    display_artist_name = found_track.get('artists', 'Unknown')[:30]
+                    if len(found_track.get('artists', '')) > 30:
+                        display_artist_name += "..."
                     
-                    # Calculate total AI recommendations
-                    total_ai_tracks = len(final_tracks) + len(not_found_tracks)
+                    album_name = found_track.get('album', 'Unknown')[:30]
+                    if len(found_track.get('album', '')) > 30:
+                        album_name += "..."
                     
-                    # Create formatted table of AI recommendations
-                    tracks_table = f"## 🎵 {playlist_info.get('name', 'Playlist')} (Preview)\n\n"
-                    tracks_table += f"**Created by:** {owner_name}"
-                    # Only show user ID if no display name exists
-                    if not owner_name or owner_name == 'Unknown':
-                        if owner_id:
-                            tracks_table += f" (@{owner_id})"
-                    tracks_table += f" • **{total_ai_tracks} AI recommendations** ({len(final_tracks)} found, {len(not_found_tracks)} not found) • {'Public' if is_public else 'Private'}\n\n"
-                    tracks_table += "| # | Track | Artist | Album | Duration | Start Time | Status |\n"
-                    tracks_table += "|---|-------|--------|-------|----------|------------|--------|\n"
+                    status = "✅ Found"
                     
-                    # First, create a map of found tracks by their original names
-                    found_tracks_map = {}
-                    for track in final_tracks:
-                        # Try to match with original AI suggestions by name similarity
-                        found_tracks_map[track['name'].lower()] = track
+                    tracks_table += f"| {track_counter} | {track_name_display} | {display_artist_name} | {album_name} | {duration_str} | {start_time_str} | {status} |\\n"
                     
-                    # Use the properly correlated track results
-                    track_results = preview.get('track_results', [])
+                    # Add current track duration to cumulative time
+                    cumulative_time_ms += duration_ms
+                else:
+                    # Track not found - show original AI suggestion
+                    track_name = result['original_track_name']
+                    artist_name = result['original_artist']
                     
-                    cumulative_time_ms = 0
-                    track_counter = 1
+                    display_track_name = track_name[:40]
+                    if len(track_name) > 40:
+                        display_track_name += "..."
                     
-                    # Show tracks in AI-recommended order using properly correlated results
-                    if track_results:
-                        for result in track_results:
-                            if result['status'] == 'found':
-                                found_track = result['found_track']
-                                
-                                # Format start time
-                                start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
-                                
-                                # Get current track duration and format it
-                                duration_ms = found_track.get('duration_ms', 0)
-                                duration_str = spotify_manager.format_time_human_readable(duration_ms)
-                                
-                                # Truncate long names for table readability
-                                full_track_name = found_track.get('name', 'Unknown')
-                                display_track_name = full_track_name[:40]
-                                if len(full_track_name) > 40:
-                                    display_track_name += "..."
-                                
-                                # Create clickable link if Spotify URL exists
-                                spotify_url = found_track.get('spotify_url', '')
-                                if spotify_url:
-                                    track_name_display = f"[{display_track_name}]({spotify_url})"
-                                else:
-                                    track_name_display = display_track_name
-                                
-                                display_artist_name = found_track.get('artists', 'Unknown')[:30]
-                                if len(found_track.get('artists', '')) > 30:
-                                    display_artist_name += "..."
-                                
-                                album_name = found_track.get('album', 'Unknown')[:30]
-                                if len(found_track.get('album', '')) > 30:
-                                    album_name += "..."
-                                
-                                status = "✅ Found"
-                                
-                                tracks_table += f"| {track_counter} | {track_name_display} | {display_artist_name} | {album_name} | {duration_str} | {start_time_str} | {status} |\n"
-                                
-                                # Add current track duration to cumulative time
-                                cumulative_time_ms += duration_ms
-                            else:
-                                # Track not found - show original AI suggestion
-                                track_name = result['original_track_name']
-                                artist_name = result['original_artist']
-                                
-                                display_track_name = track_name[:40]
-                                if len(track_name) > 40:
-                                    display_track_name += "..."
-                                
-                                display_artist_name = artist_name[:30]
-                                if len(artist_name) > 30:
-                                    display_artist_name += "..."
-                                
-                                status = "❌ Not Found"
-                                
-                                tracks_table += f"| {track_counter} | {display_track_name} | {display_artist_name} | - | - | - | {status} |\n"
-                            
-                            track_counter += 1
-                    else:
-                        # Fallback: show found tracks first, then not found
-                        for track in final_tracks:
-                            # Format start time
-                            start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
-                            
-                            # Get current track duration and format it
-                            duration_ms = track.get('duration_ms', 0)
-                            duration_str = spotify_manager.format_time_human_readable(duration_ms)
-                            
-                            # Truncate long names for table readability
-                            full_track_name = track.get('name', 'Unknown')
-                            display_track_name = full_track_name[:40]
-                            if len(full_track_name) > 40:
-                                display_track_name += "..."
-                            
-                            # Create clickable link if Spotify URL exists
-                            spotify_url = track.get('spotify_url', '')
-                            if spotify_url:
-                                track_name_display = f"[{display_track_name}]({spotify_url})"
-                            else:
-                                track_name_display = display_track_name
-                            
-                            display_artist_name = track.get('artists', 'Unknown')[:30]
-                            if len(track.get('artists', '')) > 30:
-                                display_artist_name += "..."
-                            
-                            album_name = track.get('album', 'Unknown')[:30]
-                            if len(track.get('album', '')) > 30:
-                                album_name += "..."
-                            
-                            status = "✅ Found"
-                            
-                            tracks_table += f"| {track_counter} | {track_name_display} | {display_artist_name} | {album_name} | {duration_str} | {start_time_str} | {status} |\n"
-                            
-                            # Add current track duration to cumulative time
-                            cumulative_time_ms += duration_ms
-                            track_counter += 1
-                        
-                        # Show not found tracks
-                        for not_found in not_found_tracks:
-                            if ' - ' in not_found:
-                                track_name, artist_name = not_found.split(' - ', 1)
-                            else:
-                                track_name = not_found
-                                artist_name = "Unknown"
-                            
-                            display_track_name = track_name[:40]
-                            if len(track_name) > 40:
-                                display_track_name += "..."
-                            
-                            display_artist_name = artist_name[:30]
-                            if len(artist_name) > 30:
-                                display_artist_name += "..."
-                            
-                            status = "❌ Not Found"
-                            
-                            tracks_table += f"| {track_counter} | {display_track_name} | {display_artist_name} | - | - | - | {status} |\n"
-                            track_counter += 1
+                    display_artist_name = artist_name[:30]
+                    if len(artist_name) > 30:
+                        display_artist_name += "..."
                     
-                    # Add playlist summary
-                    total_duration_ms = sum(track.get('duration_ms', 0) for track in final_tracks)
-                    total_minutes = total_duration_ms // 60000
-                    total_hours = total_minutes // 60
-                    remaining_minutes = total_minutes % 60
+                    status = "❌ Not Found"
                     
-                    if total_hours > 0:
-                        duration_summary = f"{total_hours}h {remaining_minutes}m"
-                    else:
-                        duration_summary = f"{total_minutes}m"
-                    
-                    tracks_table += f"\n**Total duration:** {duration_summary}"
-                    
-                    # Add summary of changes
-                    change_notes = []
-                    if summary['will_add'] > 0:
-                        change_notes.append(f"**{summary['will_add']} tracks** will be in final playlist")
-                    if summary['will_remove'] > 0:
-                        change_notes.append(f"**{summary['will_remove']} current tracks** will be replaced")
-                    if summary['not_found'] > 0:
-                        change_notes.append(f"**{summary['not_found']} tracks** not found")
-                    
-                    if change_notes:
-                        tracks_table += " • " + " • ".join(change_notes)
-                    
-                    tracks_table += "\n\n*This shows the complete final playlist after AI changes*"
-                    
-                    st.markdown(tracks_table)
-                    
-                    if len(preview['tracks_not_found']) > 10:
-                        st.markdown(f"*... and {len(preview['tracks_not_found']) - 10} more not found*")
+                    tracks_table += f"| {track_counter} | {display_track_name} | {display_artist_name} | - | - | - | {status} |\\n"
+                
+                track_counter += 1
+        else:
+            # Fallback: show found tracks first, then not found
+            for track in final_tracks:
+                # Format start time
+                start_time_str = spotify_manager.format_time_human_readable(cumulative_time_ms)
+                
+                # Get current track duration and format it
+                duration_ms = track.get('duration_ms', 0)
+                duration_str = spotify_manager.format_time_human_readable(duration_ms)
+                
+                # Truncate long names for table readability
+                full_track_name = track.get('name', 'Unknown')
+                display_track_name = full_track_name[:40]
+                if len(full_track_name) > 40:
+                    display_track_name += "..."
+                
+                # Create clickable link if Spotify URL exists
+                spotify_url = track.get('spotify_url', '')
+                if spotify_url:
+                    track_name_display = f"[{display_track_name}]({spotify_url})"
+                else:
+                    track_name_display = display_track_name
+                
+                display_artist_name = track.get('artists', 'Unknown')[:30]
+                if len(track.get('artists', '')) > 30:
+                    display_artist_name += "..."
+                
+                album_name = track.get('album', 'Unknown')[:30]
+                if len(track.get('album', '')) > 30:
+                    album_name += "..."
+                
+                status = "✅ Found"
+                
+                tracks_table += f"| {track_counter} | {track_name_display} | {display_artist_name} | {album_name} | {duration_str} | {start_time_str} | {status} |\\n"
+                
+                # Add current track duration to cumulative time
+                cumulative_time_ms += duration_ms
+                track_counter += 1
+            
+            # Show not found tracks
+            for not_found in not_found_tracks:
+                if ' - ' in not_found:
+                    track_name, artist_name = not_found.split(' - ', 1)
+                else:
+                    track_name = not_found
+                    artist_name = "Unknown"
+                
+                display_track_name = track_name[:40]
+                if len(track_name) > 40:
+                    display_track_name += "..."
+                
+                display_artist_name = artist_name[:30]
+                if len(artist_name) > 30:
+                    display_artist_name += "..."
+                
+                status = "❌ Not Found"
+                
+                tracks_table += f"| {track_counter} | {display_track_name} | {display_artist_name} | - | - | - | {status} |\\n"
+                track_counter += 1
+        
+        # Add playlist summary
+        total_duration_ms = sum(track.get('duration_ms', 0) for track in final_tracks)
+        total_minutes = total_duration_ms // 60000
+        total_hours = total_minutes // 60
+        remaining_minutes = total_minutes % 60
+        
+        if total_hours > 0:
+            duration_summary = f"{total_hours}h {remaining_minutes}m"
+        else:
+            duration_summary = f"{total_minutes}m"
+        
+        tracks_table += f"\\n**Total duration:** {duration_summary}"
+        
+        # Add summary of changes
+        change_notes = []
+        if summary['will_add'] > 0:
+            change_notes.append(f"**{summary['will_add']} tracks** will be in final playlist")
+        if summary['will_remove'] > 0:
+            change_notes.append(f"**{summary['will_remove']} current tracks** will be replaced")
+        if summary['not_found'] > 0:
+            change_notes.append(f"**{summary['not_found']} tracks** not found")
+        
+        if change_notes:
+            tracks_table += " • " + " • ".join(change_notes)
+        
+        tracks_table += "\\n\\n*This shows the complete final playlist after AI changes*"
+        
+        st.markdown(tracks_table)
+        
+        if len(preview['tracks_not_found']) > 10:
+            st.markdown(f"*... and {len(preview['tracks_not_found']) - 10} more not found*")
     
     st.markdown("---")
 
-# Chat input processing - only when logged in (back to original position)
+# Phase 5: MCP Write Operation Confirmation UI
+if st.session_state.get('pending_mcp_writes') is not None:
+    st.markdown("### ⚠️ Confirm Spotify Changes")
+    
+    pending_writes = st.session_state.pending_mcp_writes
+    operations = pending_writes['operations']
+    
+    st.info("The AI wants to make the following changes to your Spotify account. Please review and confirm:")
+    
+    # Show detailed preview of each operation
+    for i, op in enumerate(operations, 1):
+        with st.expander(f"**Operation {i}: {op['operation'].replace('_', ' ').title()}**", expanded=True):
+            args = op['arguments']
+            
+            if op['operation'] == 'create_playlist':
+                st.write(f"**Playlist Name:** {args.get('name', 'Unnamed')}")
+                if args.get('description'):
+                    st.write(f"**Description:** {args.get('description')}")
+                st.write(f"**Visibility:** {'🌐 Public' if args.get('public', False) else '🔒 Private'}")
+            
+            elif op['operation'] == 'add_tracks':
+                track_uris = args.get('track_uris', [])
+                st.write(f"**Playlist ID:** `{args.get('playlist_id', 'Unknown')}`")
+                st.write(f"**Number of tracks:** {len(track_uris)}")
+                if 'position' in args:
+                    st.write(f"**Insert at position:** {args['position']}")
+                
+                # Show first few track URIs
+                if track_uris:
+                    with st.expander("View track URIs"):
+                        for idx, uri in enumerate(track_uris[:10], 1):
+                            st.code(f"{idx}. {uri}", language="text")
+                        if len(track_uris) > 10:
+                            st.write(f"*... and {len(track_uris) - 10} more tracks*")
+            
+            elif op['operation'] == 'remove_tracks':
+                track_uris = args.get('track_uris', [])
+                st.write(f"**Playlist ID:** `{args.get('playlist_id', 'Unknown')}`")
+                st.write(f"**Number of tracks to remove:** {len(track_uris)}")
+                
+                if track_uris:
+                    with st.expander("View track URIs"):
+                        for idx, uri in enumerate(track_uris[:10], 1):
+                            st.code(f"{idx}. {uri}", language="text")
+                        if len(track_uris) > 10:
+                            st.write(f"*... and {len(track_uris) - 10} more tracks*")
+            
+            elif op['operation'] == 'replace_playlist':
+                track_uris = args.get('track_uris', [])
+                st.write(f"**Playlist ID:** `{args.get('playlist_id', 'Unknown')}`")
+                st.write(f"**New track count:** {len(track_uris)}")
+                st.warning("⚠️ This will **delete all existing tracks** and replace them with the new ones.")
+                
+                if track_uris:
+                    with st.expander("View new track URIs"):
+                        for idx, uri in enumerate(track_uris[:10], 1):
+                            st.code(f"{idx}. {uri}", language="text")
+                        if len(track_uris) > 10:
+                            st.write(f"*... and {len(track_uris) - 10} more tracks*")
+    
+    # Confirmation buttons
+    st.markdown("---")
+    col_execute, col_cancel = st.columns(2)
+    
+    with col_execute:
+        if st.button("✅ Execute Changes", type="primary", use_container_width=True, help="Apply these changes to your Spotify account"):
+            st.session_state.execute_mcp_writes = True
+            st.rerun()
+    
+    with col_cancel:
+        if st.button("❌ Cancel", type="secondary", use_container_width=True, help="Discard these changes"):
+            st.session_state.pending_mcp_writes = None
+            st.success("Changes cancelled. You can continue chatting.")
+            st.rerun()
+    
+    st.markdown("---")
+
+# Handle MCP write execution after confirmation
+if st.session_state.get('execute_mcp_writes', False):
+    st.session_state.execute_mcp_writes = False
+    
+    pending_writes = st.session_state.get('pending_mcp_writes')
+    if pending_writes:
+        operations = pending_writes['operations']
+        
+        with st.spinner(f"Executing {len(operations)} operations..."):
+            # Execute all write operations
+            import asyncio
+            
+            async def execute_writes():
+                token_info = st.session_state.token_info
+                access_token = token_info.get('access_token') if isinstance(token_info, dict) else None
+                
+                mcp_manager = MCPManager(access_token=access_token)
+                await mcp_manager.connect()
+                
+                try:
+                    results = []
+                    for op in operations:
+                        result = await mcp_manager.execute_tool(op['operation'], op['arguments'])
+                        results.append({
+                            'operation': op['operation'],
+                            'result': result
+                        })
+                    return results
+                finally:
+                    await mcp_manager.disconnect()
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                execution_results = loop.run_until_complete(execute_writes())
+            finally:
+                loop.close()
+        
+        # Show results
+        success_count = sum(1 for r in execution_results if 'error' not in r['result'])
+        error_count = len(execution_results) - success_count
+        
+        if error_count == 0:
+            st.success(f"✅ Successfully executed {success_count} operations!")
+            
+            # Add success message to chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"✅ All changes have been applied to your Spotify account!\n\n**Executed {success_count} operations:**\n" + 
+                          "\n".join([f"- {r['operation'].replace('_', ' ').title()}" for r in execution_results])
+            })
+        else:
+            st.error(f"⚠️ {error_count} operations failed, {success_count} succeeded.")
+            
+            # Show errors
+            for r in execution_results:
+                if 'error' in r['result']:
+                    st.error(f"**{r['operation']}:** {r['result']['error']}")
+            
+            # Add error message to chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"⚠️ Some operations failed:\n\n" +
+                          "\n".join([f"- {r['operation']}: {r['result'].get('error', 'Unknown error')}" 
+                                   for r in execution_results if 'error' in r['result']])
+            })
+        
+        # Clear pending writes
+        st.session_state.pending_mcp_writes = None
+        
+        # Save conversation
+        if st.session_state.current_user_id and st.session_state.current_playlist_id:
+            conversation_manager.save_conversation(
+                st.session_state.current_user_id,
+                st.session_state.current_playlist_id,
+                st.session_state.messages
+            )
+        
+        st.rerun()
+
+# Chat input processing - only when logged in
 if st.session_state.token_info is not None:
-    if prompt := st.chat_input("Ask me to create a playlist, or chat about music..."):
+    if prompt := st.chat_input("Enrich a playlist, combine playlists, or ask about your music..."):
         st.session_state.pending_prompt = prompt
         st.rerun()
 
@@ -1286,6 +1449,12 @@ if st.session_state.token_info is not None:
                 st.session_state.applying_changes = False
             if 'generating_preview' not in st.session_state:
                 st.session_state.generating_preview = False
+            
+            # MCP write operation preview state
+            if 'pending_mcp_writes' not in st.session_state:
+                st.session_state.pending_mcp_writes = None
+            if 'mcp_preview_data' not in st.session_state:
+                st.session_state.mcp_preview_data = None
 
             # Get AI suggestions from the conversation (use the latest assistant message)
             ai_suggestions = None
@@ -1422,15 +1591,15 @@ if st.session_state.token_info is not None:
                     # Clear current messages in session and recreate fresh conversation
                     st.session_state.messages = []
                     
-                    # Add system message for playlist enrichment specialist
-                    system_message = ai_manager.generate_system_message(has_spotify_connection=True)
+                    # Add system message (unified hybrid mode)
+                    system_message = ai_manager.generate_system_message(has_spotify_connection=True, mcp_mode=True)
                     st.session_state.messages.append({
                         "role": "system",
                         "content": system_message
                     })
                     
                     # Add welcome message
-                    welcome_message = f"🎵 **Analyzing playlist: {st.session_state.current_playlist_name}**\n\nI'm ready to intelligently enrich this playlist! I can analyze track-to-track transitions, insert new songs at optimal positions within your existing structure, and create smooth musical bridges between contrasting tracks. I'll explain exactly where each new track should go and why it improves the flow. What would you like me to enhance?"
+                    welcome_message = f"🎵 **Analyzing playlist: {st.session_state.current_playlist_name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!"
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": welcome_message

@@ -161,6 +161,37 @@ class MCPManager:
         return results
     
     @staticmethod
+    def is_write_operation(tool_name: str) -> bool:
+        """Check if a tool is a write operation that needs confirmation"""
+        write_ops = {'create_playlist', 'add_tracks', 'remove_tracks', 'replace_playlist'}
+        return tool_name in write_ops
+    
+    @staticmethod
+    def extract_write_operations(tool_calls: List) -> List[Dict[str, Any]]:
+        """Extract write operations from tool calls for preview
+        
+        Args:
+            tool_calls: List of OpenAI tool calls
+            
+        Returns:
+            List of write operations with their details
+        """
+        writes = []
+        for call in tool_calls:
+            if MCPManager.is_write_operation(call.function.name):
+                try:
+                    arguments = json.loads(call.function.arguments)
+                    writes.append({
+                        "tool_call_id": call.id,
+                        "operation": call.function.name,
+                        "arguments": arguments,
+                        "raw_call": call
+                    })
+                except Exception as e:
+                    logger.error(f"Failed to parse write operation {call.function.name}: {e}")
+        return writes
+    
+    @staticmethod
     def summarize_tool_result(tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """Summarize tool results to reduce context size
         
