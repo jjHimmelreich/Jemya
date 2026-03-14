@@ -1,5 +1,5 @@
 """
-MCP Manager - Integration layer between Streamlit UI and Spotify MCP Server
+MCP Manager - Integration layer between FastAPI backend and Spotify MCP Server
 Handles MCP client connection and converts tools for OpenAI function calling
 """
 import asyncio
@@ -238,70 +238,3 @@ class MCPManager:
         self.access_token = access_token
 
 
-# Synchronous wrapper functions for Streamlit
-class MCPManagerSync:
-    """Synchronous wrapper for MCPManager to use in Streamlit"""
-    
-    def __init__(self, access_token: Optional[str] = None):
-        self.access_token = access_token
-        self._manager: Optional[MCPManager] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-    
-    def _get_or_create_loop(self) -> asyncio.AbstractEventLoop:
-        """Get or create event loop for async operations"""
-        if self._loop is None or self._loop.is_closed():
-            try:
-                self._loop = asyncio.get_event_loop()
-            except RuntimeError:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-        return self._loop
-    
-    def _run_async(self, coro):
-        """Run async function synchronously"""
-        loop = self._get_or_create_loop()
-        return loop.run_until_complete(coro)
-    
-    def connect(self):
-        """Connect to MCP server (sync)"""
-        if not self._manager:
-            self._manager = MCPManager(self.access_token)
-        self._run_async(self._manager.connect())
-    
-    def disconnect(self):
-        """Disconnect from MCP server (sync)"""
-        if self._manager:
-            self._run_async(self._manager.disconnect())
-    
-    def get_tools_for_openai(self) -> List[Dict]:
-        """Get OpenAI-formatted tools (sync)"""
-        if not self._manager:
-            self.connect()
-        return self._run_async(self._manager.get_tools_for_openai())
-    
-    def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-        """Execute tool (sync)"""
-        if not self._manager:
-            self.connect()
-        return self._run_async(self._manager.execute_tool(tool_name, arguments))
-    
-    def execute_tool_calls(self, tool_calls: List) -> List[Dict]:
-        """Execute multiple tool calls (sync)"""
-        if not self._manager:
-            self.connect()
-        return self._run_async(self._manager.execute_tool_calls(tool_calls))
-    
-    def update_access_token(self, access_token: str):
-        """Update access token (sync)"""
-        self.access_token = access_token
-        if self._manager:
-            self._manager.update_access_token(access_token)
-    
-    def __enter__(self):
-        """Context manager entry"""
-        self.connect()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
-        self.disconnect()

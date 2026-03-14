@@ -1,6 +1,6 @@
 """
-Spotify Service (decoupled from Streamlit)
-All methods accept token_info as an explicit parameter instead of reading st.session_state.
+Spotify Service
+All methods accept token_info as an explicit parameter.
 """
 import re
 import time
