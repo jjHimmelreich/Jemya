@@ -175,11 +175,11 @@ export function Sidebar({
           {!showCreate ? (
             <div className={styles.createRow}>
               <button className={styles.createBtn} onClick={() => setShowCreate(true)}>
-                ➕ New Playlist
+                + New Playlist
               </button>
               {onRefresh && (
                 <button className={styles.refreshBtn} onClick={onRefresh} title="Reload playlists">
-                  🔄
+                  ↻
                 </button>
               )}
             </div>
@@ -212,7 +212,7 @@ export function Sidebar({
               {createError && <div className={styles.createError}>{createError}</div>}
               <div className={styles.createActions}>
                 <button type="submit" className={styles.createSubmit} disabled={creating || !newName.trim()}>
-                  {creating ? 'Creating…' : '✅ Create'}
+                  {creating ? 'Creating…' : 'Create'}
                 </button>
                 <button type="button" className={styles.createCancel} onClick={() => { setShowCreate(false); setCreateError(null); }}>
                   Cancel

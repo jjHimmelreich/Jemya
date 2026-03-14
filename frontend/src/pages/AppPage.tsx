@@ -23,7 +23,7 @@ function formatTime(ms: number): string {
 function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[]): string {
   const ownerName = playlist.owner_name || 'Unknown';
   const isPublic = playlist.public;
-  let table = `## 🎵 ${playlist.name}\n\n`;
+  let table = `## ${playlist.name}\n\n`;
   table += `**Playlist ID:** \`${playlist.id}\`\n`;
   table += `**Created by:** ${ownerName} • **${tracks.length} tracks** • ${isPublic ? 'Public' : 'Private'}\n\n`;
 
@@ -111,7 +111,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     setPreviewData(null);
     setApplyResult(null);
 
-    chat.injectMessage(`🎵 **Loading playlist: ${p.name}**...`, 'assistant');
+    chat.injectMessage(`**Loading playlist: ${p.name}**...`, 'assistant');
     setPlaylistLoading(true);
 
     try {
@@ -131,7 +131,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         const tableContent = buildTracksTable(p, tracks);
         chat.clearMessages();
         chat.injectMessage(
-          `🎵 **Analyzing playlist: ${p.name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!`,
+          `**Analyzing playlist: ${p.name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!`,
           'assistant',
         );
         chat.injectMessage(tableContent, 'user');
@@ -139,7 +139,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     } catch (e) {
       console.error('Failed to load playlist:', e);
       chat.clearMessages();
-      chat.injectMessage(`🎵 **${p.name}** selected. Could not load details — you can still chat about this playlist.`, 'assistant');
+      chat.injectMessage(`**${p.name}** selected. Could not load details — you can still chat about this playlist.`, 'assistant');
     } finally {
       setPlaylistLoading(false);
     }
