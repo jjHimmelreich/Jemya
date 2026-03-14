@@ -7,9 +7,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from backend.routers import auth, playlists, ai, mcp
 from mcp_manager import MCPManager
@@ -65,3 +68,14 @@ app.include_router(mcp.router, prefix="/mcp")
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "jemya-api"}
+
+
+# ── Serve compiled React frontend in production ───────────────────────────────
+_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if _DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str) -> FileResponse:
+        """Return index.html for all non-API routes (React SPA routing)."""
+        return FileResponse(_DIST / "index.html")

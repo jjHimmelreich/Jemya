@@ -378,7 +378,7 @@ jobs:
           echo "✅ Nginx configured to proxy to port: $NGINX_PORT"
         else
           echo "⚠️  Nginx configuration not found or invalid: $NGINX_PORT"
-          NGINX_PORT="8501"  # Fallback to default
+          NGINX_PORT="8000"  # Fallback to FastAPI default
         fi
         
         # Test application health on active port
