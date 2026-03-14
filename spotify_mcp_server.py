@@ -15,7 +15,6 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 import conf
-from spotify_manager import SpotifyManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
