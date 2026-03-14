@@ -11,6 +11,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 /* On mobile the sidebar is position:fixed (out of flow).
@@ -22,13 +23,29 @@
 }
 
 .playlistHeader {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 20px;
-  background: #181818;
-  border-bottom: 1px solid #2a2a2a;
-  flex-shrink: 0;
+  padding: 10px 16px;
+  background: rgba(28, 28, 28, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+
+.chatWrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: 82px;
 }
 
 .playlistThumb {

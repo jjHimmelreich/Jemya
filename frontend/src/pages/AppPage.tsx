@@ -221,17 +221,19 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
               </div>
             </div>
 
-            <ChatWindow
-              messages={chat.messages}
-              isLoading={chat.isLoading}
-              error={chat.error}
-              onSend={chat.send}
-              lastSuggestions={chat.lastSuggestions}
-              onPreview={handlePreview}
-              onApply={() => {
-                handlePreview();
-              }}
-            />
+            <div className={styles.chatWrap}>
+              <ChatWindow
+                messages={chat.messages}
+                isLoading={chat.isLoading || playlistLoading}
+                error={chat.error}
+                onSend={chat.send}
+                lastSuggestions={chat.lastSuggestions}
+                onPreview={handlePreview}
+                onApply={() => {
+                  handlePreview();
+                }}
+              />
+            </div>
           </>
         ) : (
           <div className={styles.noSelection}>
