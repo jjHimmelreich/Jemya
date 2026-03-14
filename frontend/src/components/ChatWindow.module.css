@@ -73,11 +73,12 @@
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: background 0.15s, opacity 0.15s;
 }
 .previewBtn {
-  background: #333;
-  color: #e0e0e0;
+  background: #3B7EA5;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(59, 126, 165, 0.35);
 }
 .applyBtn {
   background: #3B7EA5;
@@ -85,7 +86,7 @@
 }
 .previewBtn:hover,
 .applyBtn:hover {
-  opacity: 0.85;
+  background: #4a90ba;
 }
 
 .inputRow {

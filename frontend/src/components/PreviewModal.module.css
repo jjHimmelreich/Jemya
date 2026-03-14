@@ -55,7 +55,7 @@
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 600;
-  background: #1db954;
+  background: #3B7EA5;
   color: #fff;
 }
 .badge.warn {
@@ -103,7 +103,7 @@
   padding: 20px;
 }
 
-.success { color: #1db954; font-size: 0.95rem; margin-bottom: 8px; }
+.success { color: #3B7EA5; font-size: 0.95rem; margin-bottom: 8px; }
 .warn { color: #ffa500; font-size: 0.9rem; }
 
 .actions {
@@ -123,7 +123,7 @@
   cursor: pointer;
 }
 .cancelBtn { background: #333; color: #ccc; }
-.applyBtn { background: #1db954; color: #fff; }
+.applyBtn { background: #3B7EA5; color: #fff; }
 .applyBtn:disabled { opacity: 0.5; cursor: default; }
 .cancelBtn:hover { background: #444; }
-.applyBtn:hover:not(:disabled) { opacity: 0.85; }
+.applyBtn:hover:not(:disabled) { background: #4a90ba; }
