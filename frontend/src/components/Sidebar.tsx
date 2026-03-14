@@ -51,6 +51,7 @@ export function Sidebar({
 }: Props) {
   const [collapsed, setCollapsed] = useState(() => window.innerWidth <= 640);
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<'recent' | 'alpha'>('recent');
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -78,8 +79,11 @@ export function Sidebar({
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return q ? playlists.filter((p) => p.name.toLowerCase().includes(q)) : playlists;
-  }, [playlists, search]);
+    const base = q ? playlists.filter((p) => p.name.toLowerCase().includes(q)) : playlists;
+    return sort === 'alpha'
+      ? [...base].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+      : base;
+  }, [playlists, search, sort]);
 
   const myPlaylists = filtered.filter((p) => p.owner_id === userId);
 
@@ -167,6 +171,20 @@ export function Sidebar({
             {search && (
               <button className={styles.clearBtn} onClick={() => setSearch('')}>✕</button>
             )}
+            <div className={styles.sortRow}>
+              <button
+                className={`${styles.sortBtn} ${sort === 'recent' ? styles.sortActive : ''}`}
+                onClick={() => setSort('recent')}
+              >
+                Recent
+              </button>
+              <button
+                className={`${styles.sortBtn} ${sort === 'alpha' ? styles.sortActive : ''}`}
+                onClick={() => setSort('alpha')}
+              >
+                Alphabetical
+              </button>
+            </div>
           </div>
         )}
 
