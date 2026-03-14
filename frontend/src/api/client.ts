@@ -5,6 +5,24 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 const http = axios.create({ baseURL: BASE_URL });
 
+// Called by useAuth to wire up session-expiry handling.
+// When the backend returns 401, we call onSessionExpired so the user gets
+// logged out cleanly rather than seeing a silent API failure.
+let _onSessionExpired: (() => void) | null = null;
+export const setSessionExpiredHandler = (handler: () => void) => {
+  _onSessionExpired = handler;
+};
+
+http.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && _onSessionExpired) {
+      _onSessionExpired();
+    }
+    return Promise.reject(err);
+  },
+);
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export const getLoginUrl = async (): Promise<string> => {

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.cache_handler import MemoryCacheHandler
+from fastapi import HTTPException
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -66,8 +67,22 @@ class SpotifyService:
         return token_info
 
     def _client(self, token_info: Dict[str, Any]) -> spotipy.Spotify:
-        """Return an authenticated Spotipy client for the given token."""
-        token_info = self.refresh_token_if_needed(token_info) or token_info
+        """Return an authenticated Spotipy client for the given token.
+
+        Raises HTTP 401 if the token is expired so the frontend can refresh
+        and retry cleanly.  We do NOT silently refresh here — a backend-side
+        refresh discards the new token_info (including the rotated
+        refresh_token) and the frontend would later fail to refresh with the
+        stale token it still holds.
+        """
+        if not token_info or not isinstance(token_info, dict):
+            raise HTTPException(status_code=401, detail="No token provided")
+        expires_at = token_info.get("expires_at")
+        if expires_at and time.time() > float(expires_at):
+            raise HTTPException(
+                status_code=401,
+                detail="Spotify token expired – please refresh",
+            )
         return spotipy.Spotify(auth=token_info["access_token"])
 
     # ── User ─────────────────────────────────────────────────────────────────

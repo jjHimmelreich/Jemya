@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { exchangeCode, refreshToken, getMe, getLoginUrl } from '../api/client';
+import { exchangeCode, refreshToken, getMe, getLoginUrl, setSessionExpiredHandler } from '../api/client';
 import type { TokenInfo, UserInfo } from '../types';
 
 const TOKEN_KEY = 'jemya_token';
@@ -53,6 +53,14 @@ export function useAuth() {
   const logout = useCallback(() => {
     setTokenInfo(null);
     setUserInfo(null);
+  }, []);
+
+  // Wire 401 interceptor: expired token → clean logout
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setTokenInfo(null);
+      setUserInfo(null);
+    });
   }, []);
 
   const ensureValidToken = useCallback(async (): Promise<TokenInfo | null> => {
