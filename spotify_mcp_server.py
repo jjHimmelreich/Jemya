@@ -434,25 +434,39 @@ class SpotifyMCPServer:
         }
     
     async def _add_tracks(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Add tracks to playlist"""
+        """Add tracks to playlist, skipping any URIs already present (idempotent)."""
         playlist_id = args["playlist_id"]
         track_uris = args["track_uris"]
         position = args.get("position")
         access_token = args.get("access_token")
-        
+
         sp = self._get_spotify_client(access_token)
-        
+
+        # Fetch current track URIs to avoid adding duplicates
+        existing_uris: set = set()
+        results = sp.playlist_items(playlist_id, fields='items(track(uri)),next', limit=100)
+        while results:
+            for item in (results.get('items') or []):
+                track = (item or {}).get('track')
+                if track and track.get('uri'):
+                    existing_uris.add(track['uri'])
+            results = sp.next(results) if results.get('next') else None
+
+        new_uris = [u for u in track_uris if u not in existing_uris]
+        skipped_count = len(track_uris) - len(new_uris)
+
         # Add in batches of 100
         added_count = 0
-        for i in range(0, len(track_uris), 100):
-            batch = track_uris[i:i+100]
+        for i in range(0, len(new_uris), 100):
+            batch = new_uris[i:i+100]
             sp.playlist_add_items(playlist_id, batch, position=position)
             added_count += len(batch)
-        
+
         return {
             'success': True,
             'playlist_id': playlist_id,
-            'added_count': added_count
+            'added_count': added_count,
+            'skipped_duplicates': skipped_count,
         }
     
     async def _remove_tracks(self, args: Dict[str, Any]) -> Dict[str, Any]:

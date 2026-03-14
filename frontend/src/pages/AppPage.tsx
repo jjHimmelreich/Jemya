@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Sidebar } from '../components/Sidebar';
 import { ChatWindow } from '../components/ChatWindow';
 import { PreviewModal } from '../components/PreviewModal';
 import { useChat } from '../hooks/useChat';
 import { usePlaylists } from '../hooks/usePlaylists';
-import { extractTracks, previewChanges, applyChanges, getPlaylistTracks, createPlaylist } from '../api/client';
+import { extractTracks, previewChanges, applyChanges, getPlaylistTracks, createPlaylist, loadConversation } from '../api/client';
 import type { PlaylistItem, TrackItem, TokenInfo, UserInfo, PreviewData, ApplyResult } from '../types';
 import styles from './AppPage.module.css';
 
@@ -24,6 +24,7 @@ function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[]): string {
   const ownerName = playlist.owner_name || 'Unknown';
   const isPublic = playlist.public;
   let table = `## 🎵 ${playlist.name}\n\n`;
+  table += `**Playlist ID:** \`${playlist.id}\`\n`;
   table += `**Created by:** ${ownerName} • **${tracks.length} tracks** • ${isPublic ? 'Public' : 'Private'}\n\n`;
 
   if (tracks.length === 0) {
@@ -81,7 +82,18 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
 
-  const { playlists, loading: playlistsLoading, fetchPlaylists } = usePlaylists(tokenInfo);
+  const { playlists, loading: playlistsLoading, fetchPlaylists, updatePlaylistCount } = usePlaylists(tokenInfo);
+
+  // After AI mutates a playlist: refresh list AND correct track count for the selected playlist
+  const handlePlaylistMutated = useCallback(async () => {
+    await fetchPlaylists();
+    if (selectedPlaylist && tokenInfo) {
+      try {
+        const freshTracks = await getPlaylistTracks(tokenInfo, selectedPlaylist.id);
+        updatePlaylistCount(selectedPlaylist.id, freshTracks.length);
+      } catch { /* ignore */ }
+    }
+  }, [fetchPlaylists, selectedPlaylist, tokenInfo, updatePlaylistCount]);
 
   const chat = useChat({
     tokenInfo,
@@ -90,6 +102,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     playlistName: selectedPlaylist?.name,
     mcpMode,
     ensureValidToken,
+    onPlaylistMutated: handlePlaylistMutated,
   });
 
   const handleSelectPlaylist = async (p: PlaylistItem) => {
@@ -98,27 +111,35 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     setPreviewData(null);
     setApplyResult(null);
 
-    // Inject welcome + playlist tracks as conversation context (mirrors old implementation)
-    chat.injectMessage(
-      `🎵 **Loading playlist: ${p.name}**...`,
-      'assistant',
-    );
-
+    chat.injectMessage(`🎵 **Loading playlist: ${p.name}**...`, 'assistant');
     setPlaylistLoading(true);
+
     try {
-      const tracks = await getPlaylistTracks(tokenInfo, p.id);
-      const tableContent = buildTracksTable(p, tracks);
-      // Replace the loading message with the actual tracks table
-      chat.clearMessages();
-      chat.injectMessage(
-        `🎵 **Analyzing playlist: ${p.name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!`,
-        'assistant',
-      );
-      chat.injectMessage(tableContent, 'user');
+      // Fetch saved conversation and current tracks in parallel
+      const [savedMessages, tracks] = await Promise.all([
+        userInfo?.id ? loadConversation(userInfo.id, p.id) : Promise.resolve([]),
+        getPlaylistTracks(tokenInfo, p.id),
+      ]);
+
+      updatePlaylistCount(p.id, tracks.length);
+
+      if (savedMessages.length > 0) {
+        // Restore previous conversation — tracks table is already embedded in the history
+        chat.restoreMessages(savedMessages);
+      } else {
+        // Fresh start: inject welcome message + tracks table
+        const tableContent = buildTracksTable(p, tracks);
+        chat.clearMessages();
+        chat.injectMessage(
+          `🎵 **Analyzing playlist: ${p.name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!`,
+          'assistant',
+        );
+        chat.injectMessage(tableContent, 'user');
+      }
     } catch (e) {
-      console.error('Failed to load playlist tracks:', e);
+      console.error('Failed to load playlist:', e);
       chat.clearMessages();
-      chat.injectMessage(`🎵 **${p.name}** selected. Could not load track details — you can still chat about this playlist.`, 'assistant');
+      chat.injectMessage(`🎵 **${p.name}** selected. Could not load details — you can still chat about this playlist.`, 'assistant');
     } finally {
       setPlaylistLoading(false);
     }

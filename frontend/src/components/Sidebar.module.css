@@ -18,7 +18,7 @@
 .logo {
   font-size: 1.2rem;
   font-weight: 700;
-  color: #1db954;
+  color: #3B7EA5;
   margin-bottom: 8px;
 }
 
@@ -64,7 +64,7 @@
   box-sizing: border-box;
 }
 .searchInput:focus {
-  border-color: #1db954;
+  border-color: #3B7EA5;
 }
 .searchInput::placeholder {
   color: #555;
@@ -162,7 +162,7 @@
   background: #1a1a1a;
 }
 .item.active {
-  background: #1db954;
+  background: #3B7EA5;
   color: #fff;
 }
 .item.active .count {
@@ -228,8 +228,8 @@
 .createBtn {
   flex: 1;
   background: none;
-  border: 1px dashed #1db954;
-  color: #1db954;
+  border: 1px dashed #3B7EA5;
+  color: #3B7EA5;
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 0.85rem;
@@ -237,7 +237,7 @@
   transition: background 0.15s;
 }
 .createBtn:hover {
-  background: rgba(29, 185, 84, 0.1);
+  background: rgba(59, 126, 165, 0.1);
 }
 
 .refreshBtn {
@@ -252,8 +252,8 @@
   flex-shrink: 0;
 }
 .refreshBtn:hover {
-  border-color: #1db954;
-  color: #1db954;
+  border-color: #3B7EA5;
+  color: #3B7EA5;
 }
 
 .createForm {
@@ -274,7 +274,7 @@
 }
 .createInput:focus {
   outline: none;
-  border-color: #1db954;
+  border-color: #3B7EA5;
 }
 
 .createCheckbox {
@@ -298,10 +298,10 @@
 
 .createSubmit {
   flex: 1;
-  background: #1db954;
+  background: #3B7EA5;
   border: none;
   border-radius: 6px;
-  color: #000;
+  color: #fff;
   font-size: 0.82rem;
   font-weight: 600;
   padding: 6px;
@@ -312,7 +312,7 @@
   cursor: not-allowed;
 }
 .createSubmit:not(:disabled):hover {
-  background: #1ed760;
+  background: #3677A1;
 }
 
 .createCancel {

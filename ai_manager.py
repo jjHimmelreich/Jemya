@@ -346,6 +346,8 @@ class AIManager:
             "• Always explain your plan before executing write operations\n"
             "• For write operations, clearly state what will change\n"
             "• Track URIs from read_playlist can be used directly in add/remove/replace operations\n"
+            "• BEFORE calling add_tracks, always call read_playlist(playlist_id) first to check which tracks are already present — never add tracks that are already in the playlist\n"
+            "• If the conversation already shows you added tracks to a playlist, DO NOT add them again without first calling read_playlist to verify current state\n"
             "• When enriching single playlists, prioritize flow and transitions\n"
             "• When combining playlists, preserve track order unless user requests reordering\n"
             "• LISTING RULE: When reporting playlists or tracks, ALWAYS state the exact total count from the tool result first. Then list ALL items — never truncate, summarize, or say 'and X more'. If the list is long, use a compact format (one per line) but include every single item.\n\n"

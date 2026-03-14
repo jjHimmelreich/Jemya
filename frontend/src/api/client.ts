@@ -94,6 +94,7 @@ export const applyChanges = async (
 export interface ChatApiResponse {
   response: string;
   track_suggestions?: string[];
+  tool_calls?: { name: string; arguments: string }[];
 }
 
 export const sendChat = async (params: {
@@ -116,6 +117,17 @@ export const sendChat = async (params: {
     mcp_mode: params.mcpMode ?? false,
   });
   return data;
+};
+
+export const loadConversation = async (
+  userId: string,
+  playlistId: string,
+): Promise<{ role: string; content: string }[]> => {
+  const { data } = await http.post<{ messages: { role: string; content: string }[] }>(
+    '/ai/load-conversation',
+    { user_id: userId, playlist_id: playlistId },
+  );
+  return data.messages ?? [];
 };
 
 export const extractTracks = async (

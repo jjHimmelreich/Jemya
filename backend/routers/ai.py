@@ -80,6 +80,22 @@ async def chat(body: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/load-conversation")
+def load_conversation_endpoint(body: dict) -> dict:
+    """
+    Load saved conversation messages for a user+playlist pair.
+    Returns {messages: [{role, content}, ...]} or {messages: []} if none saved.
+    """
+    user_id = body.get("user_id", "")
+    playlist_id = body.get("playlist_id", "")
+    if not user_id or not playlist_id:
+        return {"messages": []}
+    messages = conversation_manager.load_conversation(user_id, playlist_id)
+    # Filter out system messages — the backend re-injects them on each request
+    non_system = [m for m in messages if m.get("role") != "system"]
+    return {"messages": non_system}
+
+
 @router.post("/extract-tracks")
 async def extract_tracks(body: dict) -> dict:
     """

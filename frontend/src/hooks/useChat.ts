@@ -5,6 +5,8 @@ import type { ChatMessage, TokenInfo } from '../types';
 let idCounter = 0;
 const uid = () => `msg-${++idCounter}-${Date.now()}`;
 
+const MUTATING_TOOLS = new Set(['add_tracks', 'remove_tracks', 'replace_playlist', 'create_playlist']);
+
 export function useChat(params: {
   tokenInfo: TokenInfo | null;
   userId?: string;
@@ -12,6 +14,7 @@ export function useChat(params: {
   playlistName?: string;
   mcpMode?: boolean;
   ensureValidToken?: () => Promise<TokenInfo | null>;
+  onPlaylistMutated?: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -60,6 +63,14 @@ export function useChat(params: {
         if (result.track_suggestions?.length) {
           setLastSuggestions(result.track_suggestions);
         }
+
+        // Refresh sidebar playlist list when the AI mutated Spotify data
+        if (
+          params.onPlaylistMutated &&
+          result.tool_calls?.some((tc) => MUTATING_TOOLS.has(tc.name))
+        ) {
+          params.onPlaylistMutated();
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Something went wrong';
         setError(msg);
@@ -80,5 +91,18 @@ export function useChat(params: {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
-  return { messages, isLoading, error, lastSuggestions, send, clearMessages, injectMessage };
+  // Restore a full saved conversation (e.g. loaded from server)
+  const restoreMessages = useCallback((saved: { role: string; content: string }[]) => {
+    const restored: ChatMessage[] = saved
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        id: uid(),
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        timestamp: Date.now(),
+      }));
+    setMessages(restored);
+  }, []);
+
+  return { messages, isLoading, error, lastSuggestions, send, clearMessages, injectMessage, restoreMessages };
 }

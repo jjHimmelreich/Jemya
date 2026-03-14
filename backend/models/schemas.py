@@ -115,6 +115,8 @@ class MCPChatRequest(BaseModel):
     user_message: str
     conversation_history: List[Message] = []
     user_id: Optional[str] = None
+    playlist_id: Optional[str] = None
+    playlist_name: Optional[str] = None
 
 
 class MCPWriteOperation(BaseModel):

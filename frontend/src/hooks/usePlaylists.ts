@@ -37,5 +37,13 @@ export function usePlaylists(tokenInfo: TokenInfo | null) {
     [tokenInfo],
   );
 
-  return { playlists, loading, error, fetchPlaylists, fetchTracks };
+  // Correct the track count for a specific playlist in local state
+  // (Spotify's listing endpoint caches tracks.total and can lag behind reality)
+  const updatePlaylistCount = useCallback((playlistId: string, count: number) => {
+    setPlaylists((prev) =>
+      prev.map((p) => (p.id === playlistId ? { ...p, tracks_total: count } : p)),
+    );
+  }, []);
+
+  return { playlists, loading, error, fetchPlaylists, fetchTracks, updatePlaylistCount };
 }
