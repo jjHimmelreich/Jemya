@@ -4,7 +4,7 @@ import { ChatWindow } from '../components/ChatWindow';
 import { PreviewModal } from '../components/PreviewModal';
 import { useChat } from '../hooks/useChat';
 import { usePlaylists } from '../hooks/usePlaylists';
-import { extractTracks, previewChanges, applyChanges, getPlaylistTracks } from '../api/client';
+import { extractTracks, previewChanges, applyChanges, getPlaylistTracks, createPlaylist } from '../api/client';
 import type { PlaylistItem, TrackItem, TokenInfo, UserInfo, PreviewData, ApplyResult } from '../types';
 import styles from './AppPage.module.css';
 
@@ -81,7 +81,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
 
-  const { playlists, loading: playlistsLoading } = usePlaylists(tokenInfo);
+  const { playlists, loading: playlistsLoading, fetchPlaylists } = usePlaylists(tokenInfo);
 
   const chat = useChat({
     tokenInfo,
@@ -121,6 +121,24 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
       chat.injectMessage(`🎵 **${p.name}** selected. Could not load track details — you can still chat about this playlist.`, 'assistant');
     } finally {
       setPlaylistLoading(false);
+    }
+  };
+
+  const handleCreatePlaylist = async (name: string, description: string, isPublic: boolean) => {
+    const result = await createPlaylist(tokenInfo, name, description, isPublic);
+    await fetchPlaylists();
+    // Auto-select the new playlist (mirrors old Streamlit behaviour)
+    if (result.playlist_id) {
+      const newPlaylist: PlaylistItem = {
+        id: result.playlist_id,
+        name,
+        description,
+        public: isPublic,
+        tracks_total: 0,
+        owner_id: userInfo?.id,
+        owner_name: userInfo?.display_name ?? userInfo?.id,
+      };
+      await handleSelectPlaylist(newPlaylist);
     }
   };
 
@@ -164,6 +182,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         userDisplayName={userInfo?.display_name ?? userInfo?.id}
         userId={userInfo?.id}
         onLogout={onLogout}
+        onCreatePlaylist={handleCreatePlaylist}
       />
 
       <main className={styles.main}>

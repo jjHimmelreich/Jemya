@@ -10,6 +10,7 @@ interface Props {
   userId?: string;
   userDisplayName?: string;
   onLogout?: () => void;
+  onCreatePlaylist?: (name: string, description: string, isPublic: boolean) => Promise<void>;
 }
 
 function CollapsibleGroup({
@@ -44,8 +45,33 @@ export function Sidebar({
   userId,
   userDisplayName,
   onLogout,
+  onCreatePlaylist,
 }: Props) {
   const [search, setSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newPublic, setNewPublic] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !onCreatePlaylist) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await onCreatePlaylist(newName.trim(), newDesc.trim(), newPublic);
+      setNewName('');
+      setNewDesc('');
+      setNewPublic(false);
+      setShowCreate(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create playlist');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -116,6 +142,52 @@ export function Sidebar({
           <button className={styles.clearBtn} onClick={() => setSearch('')}>✕</button>
         )}
       </div>
+
+      {onCreatePlaylist && (
+        <div className={styles.createSection}>
+          {!showCreate ? (
+            <button className={styles.createBtn} onClick={() => setShowCreate(true)}>
+              ➕ New Playlist
+            </button>
+          ) : (
+            <form className={styles.createForm} onSubmit={handleCreate}>
+              <input
+                className={styles.createInput}
+                type="text"
+                placeholder="Playlist name *"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                autoFocus
+                required
+              />
+              <input
+                className={styles.createInput}
+                type="text"
+                placeholder="Description (optional)"
+                value={newDesc}
+                onChange={(e) => setNewDesc(e.target.value)}
+              />
+              <label className={styles.createCheckbox}>
+                <input
+                  type="checkbox"
+                  checked={newPublic}
+                  onChange={(e) => setNewPublic(e.target.checked)}
+                />
+                Make public
+              </label>
+              {createError && <div className={styles.createError}>{createError}</div>}
+              <div className={styles.createActions}>
+                <button type="submit" className={styles.createSubmit} disabled={creating || !newName.trim()}>
+                  {creating ? 'Creating…' : '✅ Create'}
+                </button>
+                <button type="button" className={styles.createCancel} onClick={() => { setShowCreate(false); setCreateError(null); }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className={styles.loading}>Loading playlists…</div>
