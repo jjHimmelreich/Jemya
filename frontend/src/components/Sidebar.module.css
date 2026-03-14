@@ -219,8 +219,14 @@
   flex-shrink: 0;
 }
 
+.createRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .createBtn {
-  width: 100%;
+  flex: 1;
   background: none;
   border: 1px dashed #1db954;
   color: #1db954;
@@ -232,6 +238,22 @@
 }
 .createBtn:hover {
   background: rgba(29, 185, 84, 0.1);
+}
+
+.refreshBtn {
+  background: none;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #aaa;
+  font-size: 0.9rem;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.refreshBtn:hover {
+  border-color: #1db954;
+  color: #1db954;
 }
 
 .createForm {

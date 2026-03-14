@@ -183,6 +183,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         userId={userInfo?.id}
         onLogout={onLogout}
         onCreatePlaylist={handleCreatePlaylist}
+        onRefresh={fetchPlaylists}
       />
 
       <main className={styles.main}>

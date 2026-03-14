@@ -11,6 +11,7 @@ interface Props {
   userDisplayName?: string;
   onLogout?: () => void;
   onCreatePlaylist?: (name: string, description: string, isPublic: boolean) => Promise<void>;
+  onRefresh?: () => void;
 }
 
 function CollapsibleGroup({
@@ -46,6 +47,7 @@ export function Sidebar({
   userDisplayName,
   onLogout,
   onCreatePlaylist,
+  onRefresh,
 }: Props) {
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -146,9 +148,16 @@ export function Sidebar({
       {onCreatePlaylist && (
         <div className={styles.createSection}>
           {!showCreate ? (
-            <button className={styles.createBtn} onClick={() => setShowCreate(true)}>
-              ➕ New Playlist
-            </button>
+            <div className={styles.createRow}>
+              <button className={styles.createBtn} onClick={() => setShowCreate(true)}>
+                ➕ New Playlist
+              </button>
+              {onRefresh && (
+                <button className={styles.refreshBtn} onClick={onRefresh} title="Reload playlists">
+                  🔄
+                </button>
+              )}
+            </div>
           ) : (
             <form className={styles.createForm} onSubmit={handleCreate}>
               <input
