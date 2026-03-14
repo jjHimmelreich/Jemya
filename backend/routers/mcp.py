@@ -9,8 +9,10 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.models.schemas import MCPChatRequest
 from backend.services.ai_service import get_ai_manager
+from backend.services.spotify_service import SpotifyService
 
 router = APIRouter(tags=["mcp"])
+_spotify = SpotifyService()
 
 
 @router.post("/chat")
@@ -24,6 +26,13 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Valid token_info required for MCP mode")
 
     access_token = token_info["access_token"]
+
+    # Refresh token server-side if needed before passing to MCP tools
+    fresh = _spotify.refresh_token_if_needed(token_info)
+    if fresh is None:
+        raise HTTPException(status_code=401, detail="Token expired and refresh failed – please log in again.")
+    access_token = fresh["access_token"]
+
     history = [m.model_dump(exclude_none=True) for m in body.conversation_history]
 
     # Use the persistent MCP manager from app state (started once at startup)

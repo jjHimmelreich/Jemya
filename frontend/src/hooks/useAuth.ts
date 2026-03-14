@@ -71,5 +71,22 @@ export function useAuth() {
     return tokenInfo;
   }, [tokenInfo, logout]);
 
+  // Proactive background refresh: check every 30s, refresh if within 2 minutes of expiry
+  useEffect(() => {
+    if (!tokenInfo) return;
+    const interval = setInterval(async () => {
+      const now = Date.now() / 1000;
+      if (tokenInfo.expires_at && tokenInfo.expires_at - now < 120) {
+        try {
+          const refreshed = await refreshToken(tokenInfo);
+          setTokenInfo(refreshed);
+        } catch {
+          logout();
+        }
+      }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [tokenInfo, logout]);
+
   return { tokenInfo, userInfo, loading, login, logout, ensureValidToken };
 }

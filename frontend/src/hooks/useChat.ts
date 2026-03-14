@@ -11,6 +11,7 @@ export function useChat(params: {
   playlistId?: string;
   playlistName?: string;
   mcpMode?: boolean;
+  ensureValidToken?: () => Promise<TokenInfo | null>;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -21,6 +22,12 @@ export function useChat(params: {
     async (text: string) => {
       if (!params.tokenInfo || !text.trim()) return;
       setError(null);
+
+      // Always use a fresh token before sending
+      const freshToken = params.ensureValidToken
+        ? await params.ensureValidToken()
+        : params.tokenInfo;
+      if (!freshToken) return;
 
       const userMsg: ChatMessage = { id: uid(), role: 'user', content: text, timestamp: Date.now() };
       setMessages((prev) => [...prev, userMsg]);
@@ -33,7 +40,7 @@ export function useChat(params: {
           .map(({ role, content }) => ({ role, content }));
 
         const result = await sendChat({
-          tokenInfo: params.tokenInfo,
+          tokenInfo: freshToken,
           userMessage: text,
           conversationHistory: history,
           playlistId: params.playlistId,

@@ -66,9 +66,10 @@ interface Props {
   tokenInfo: TokenInfo;
   userInfo: UserInfo | null;
   onLogout: () => void;
+  ensureValidToken: () => Promise<TokenInfo | null>;
 }
 
-export function AppPage({ tokenInfo, userInfo, onLogout }: Props) {
+export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Props) {
   const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistItem | null>(null);
   const [playlistLoading, setPlaylistLoading] = useState(false);
   const mcpMode = true;
@@ -88,6 +89,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout }: Props) {
     playlistId: selectedPlaylist?.id,
     playlistName: selectedPlaylist?.name,
     mcpMode,
+    ensureValidToken,
   });
 
   const handleSelectPlaylist = async (p: PlaylistItem) => {
