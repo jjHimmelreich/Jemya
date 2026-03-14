@@ -318,8 +318,18 @@ class SpotifyMCPServer:
         
         sp = self._get_spotify_client(access_token)
         
-        # Reuse the shared helper method from spotify_manager
-        playlists = SpotifyManager.fetch_all_playlists_from_spotify(sp)
+        # Fetch all playlists with pagination
+        playlists = []
+        offset = 0
+        page_limit = 50
+        while True:
+            response = sp.current_user_playlists(offset=offset, limit=page_limit)
+            if not response or 'items' not in response:
+                break
+            playlists.extend(response['items'])
+            if len(response['items']) < page_limit:
+                break
+            offset += page_limit
         
         # Apply limit if specified
         if limit and len(playlists) > limit:
