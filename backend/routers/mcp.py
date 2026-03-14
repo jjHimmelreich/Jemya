@@ -62,9 +62,11 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
                 f"\n\nACTIVE PLAYLIST:\n"
                 f"• Name: {body.playlist_name}\n"
                 f"• Spotify ID: `{body.playlist_id}`\n"
-                f"Use this playlist_id directly for add_tracks / remove_tracks / replace_playlist. "
-                f"NEVER call create_playlist when the user says 'save', 'apply', 'add tracks', "
-                f"or 'use this playlist' — always operate on `{body.playlist_id}` instead."
+                f"When the user asks to enrich or modify this playlist, read it with read_playlist(`{body.playlist_id}`), "
+                f"analyze the tracks, search for additions with search_tracks(), then output the COMPLETE final "
+                f"tracklist as 'Track Name - Artist' lines (every track in order). "
+                f"Do NOT call add_tracks, remove_tracks, or replace_playlist — those tools are not available. "
+                f"The user will review your proposed tracklist and apply it with the Preview & Save button."
             )
             for msg in history:
                 if msg.get("role") == "system":
@@ -98,6 +100,13 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
             ],
             "tool_results": result.get("tool_results", []),
             "max_iterations_reached": result.get("max_iterations_reached", False),
+            # Extract track suggestions so the frontend Preview→Apply flow works.
+            # Lines of the form "Track Name - Artist" are treated as proposals.
+            "track_suggestions": [
+                line.strip()
+                for line in result.get("response", "").split("\n")
+                if " - " in line or ("**" in line and "-" in line)
+            ] or None,
         }
 
     except Exception as e:

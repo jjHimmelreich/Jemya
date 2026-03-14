@@ -10,7 +10,6 @@ interface Props {
   onSend: (text: string) => void;
   lastSuggestions?: string[] | null;
   onPreview?: () => void;
-  onApply?: () => void;
   disabled?: boolean;
 }
 
@@ -21,7 +20,6 @@ export function ChatWindow({
   onSend,
   lastSuggestions,
   onPreview,
-  onApply,
   disabled,
 }: Props) {
   const [input, setInput] = useState('');
@@ -72,12 +70,7 @@ export function ChatWindow({
         <div className={styles.actionBar}>
           {onPreview && (
             <button className={styles.previewBtn} onClick={onPreview}>
-              Preview Changes
-            </button>
-          )}
-          {onApply && (
-            <button className={styles.applyBtn} onClick={onApply}>
-              Apply to Spotify
+              Preview &amp; Save
             </button>
           )}
         </div>
