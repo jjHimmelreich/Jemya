@@ -143,10 +143,18 @@
 }
 
 .searchBox {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 12px;
   border-bottom: 1px solid #222;
   flex-shrink: 0;
+}
+
+.searchInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .searchInput {
@@ -170,7 +178,7 @@
 
 .clearBtn {
   position: absolute;
-  right: 20px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   background: none;
@@ -183,30 +191,70 @@
 }
 .clearBtn:hover { color: #aaa; }
 
-.sortRow {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
+/* Sort dropdown */
+.sortDropdownWrap {
+  position: relative;
+  flex-shrink: 0;
 }
-.sortBtn {
+.sortTrigger {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   background: none;
   border: 1px solid #333;
-  border-radius: 20px;
+  border-radius: 6px;
   color: #888;
-  font-size: 0.73rem;
-  padding: 3px 10px;
+  font-size: 0.78rem;
+  padding: 5px 7px;
   cursor: pointer;
   font-family: inherit;
   transition: color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
-.sortBtn:hover {
+.sortTrigger:hover {
   color: #ccc;
   border-color: #555;
 }
-.sortActive {
+.sortTriggerActive {
   color: #e0e0e0;
   border-color: #e0e0e0;
+}
+.sortTriggerChevron {
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+.sortMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  min-width: 140px;
+  z-index: 200;
+  overflow: hidden;
+}
+.sortOption {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #b0b0b0;
+  font-size: 0.83rem;
+  font-family: inherit;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.sortOption:hover {
+  background: rgba(255,255,255,0.07);
+  color: #e0e0e0;
+}
+.sortOptionActive {
+  color: #fff;
+  font-weight: 600;
 }
 
 .listContainer {

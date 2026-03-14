@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { PlaylistItem } from '../types';
 import styles from './Sidebar.module.css';
 
@@ -52,6 +52,19 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState(() => window.innerWidth <= 640);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'recent' | 'alpha'>('recent');
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
+        setSortOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [sortOpen]);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -161,29 +174,42 @@ export function Sidebar({
 
         {!collapsed && (
           <div className={styles.searchBox}>
-            <input
-              className={styles.searchInput}
-              type="text"
-              placeholder="Search playlists…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {search && (
-              <button className={styles.clearBtn} onClick={() => setSearch('')}>✕</button>
-            )}
-            <div className={styles.sortRow}>
+            <div className={styles.searchInputWrap}>
+              <input
+                className={styles.searchInput}
+                type="text"
+                placeholder="Search playlists…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {search && (
+                <button className={styles.clearBtn} onClick={() => setSearch('')}>✕</button>
+              )}
+            </div>
+            <div className={styles.sortDropdownWrap} ref={sortRef}>
               <button
-                className={`${styles.sortBtn} ${sort === 'recent' ? styles.sortActive : ''}`}
-                onClick={() => setSort('recent')}
+                className={`${styles.sortTrigger} ${sort === 'alpha' ? styles.sortTriggerActive : ''}`}
+                onClick={() => setSortOpen((v) => !v)}
+                title="Sort playlists"
               >
-                Recent
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 4h12v1.5H2zm2 3.5h8V9H4zm2 3.5h4v1.5H6z"/>
+                </svg>
+                <span className={styles.sortTriggerChevron}>▾</span>
               </button>
-              <button
-                className={`${styles.sortBtn} ${sort === 'alpha' ? styles.sortActive : ''}`}
-                onClick={() => setSort('alpha')}
-              >
-                Alphabetical
-              </button>
+              {sortOpen && (
+                <div className={styles.sortMenu}>
+                  {(['recent', 'alpha'] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      className={`${styles.sortOption} ${sort === opt ? styles.sortOptionActive : ''}`}
+                      onClick={() => { setSort(opt); setSortOpen(false); }}
+                    >
+                      {opt === 'recent' ? 'Recents' : 'Alphabetical'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
