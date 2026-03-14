@@ -14,7 +14,7 @@ export default function App() {
           alignItems: 'center',
           justifyContent: 'center',
           background: '#121212',
-          color: '#1db954',
+          color: '#3B7EA5',
           fontSize: '1.1rem',
         }}
       >
