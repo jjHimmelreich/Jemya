@@ -39,6 +39,7 @@ class AIManager:
         self,
         user_message: str,
         conversation_history: List[Dict[str, Any]],
+        access_token: Optional[str] = None,
         max_iterations: int = 5,
         max_context_tokens: int = 100000  # Leave headroom for tools and response
     ) -> Dict[str, Any]:
@@ -120,7 +121,9 @@ class AIManager:
                 }
             
             # Execute the tool calls
-            tool_results = await self.mcp_manager.execute_tool_calls(assistant_message.tool_calls)
+            tool_results = await self.mcp_manager.execute_tool_calls(
+                assistant_message.tool_calls, access_token=access_token
+            )
             
             # Track all tool calls and results
             all_tool_calls.extend(assistant_message.tool_calls)

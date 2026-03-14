@@ -2,15 +2,45 @@
 Jemya FastAPI Backend
 Run with: uvicorn backend.main:app --reload --port 8000
 """
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routers import auth, playlists, ai, mcp
+from mcp_manager import MCPManager
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start one persistent MCP server process for the lifetime of the app."""
+    manager = MCPManager()
+    try:
+        await manager.connect()
+        app.state.mcp_manager = manager
+        logger.info("Persistent MCP server connected")
+    except Exception as e:
+        logger.error(f"Could not start persistent MCP server: {e}")
+        app.state.mcp_manager = None
+
+    yield  # ── app is running ──
+
+    if app.state.mcp_manager:
+        await manager.disconnect()
+        logger.info("Persistent MCP server disconnected")
+
 
 app = FastAPI(
     title="Jemya API",
     description="AI Playlist Generator – FastAPI backend",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Allow the React dev server (port 5173 for Vite) and production origin

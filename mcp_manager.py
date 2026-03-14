@@ -106,15 +106,17 @@ class MCPManager:
             logger.error(f"Failed to get MCP tools: {e}")
             raise
     
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any],
+                           access_token: Optional[str] = None) -> Any:
         """Execute a single MCP tool"""
         if not self.session:
             await self.connect()
         
         try:
-            # Add access token to arguments if available
-            if self.access_token and "access_token" not in arguments:
-                arguments["access_token"] = self.access_token
+            # Prefer explicitly passed token (for per-request isolation on shared instance)
+            token = access_token or self.access_token
+            if token and "access_token" not in arguments:
+                arguments["access_token"] = token
             
             logger.info(f"Executing tool: {tool_name}")
             result = await self.session.call_tool(tool_name, arguments)
@@ -129,16 +131,21 @@ class MCPManager:
             
         except Exception as e:
             logger.error(f"Failed to execute tool {tool_name}: {e}")
+            # Mark session as dead so next call triggers a reconnect
+            self.session = None
+            self.client_context = None
             return {"error": str(e)}
     
-    async def execute_tool_calls(self, tool_calls: List) -> List[Dict]:
+    async def execute_tool_calls(self, tool_calls: List,
+                                  access_token: Optional[str] = None) -> List[Dict]:
         """Execute multiple OpenAI function calls via MCP"""
         results = []
         
         for call in tool_calls:
             try:
                 arguments = json.loads(call.function.arguments)
-                result = await self.execute_tool(call.function.name, arguments)
+                result = await self.execute_tool(call.function.name, arguments,
+                                                 access_token=access_token)
                 
                 # Summarize result to reduce context size
                 summarized_result = self.summarize_tool_result(call.function.name, result)
