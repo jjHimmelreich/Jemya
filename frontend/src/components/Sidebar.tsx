@@ -121,7 +121,10 @@ export function Sidebar({
   return (
     <aside className={styles.sidebar}>
       <div className={styles.header}>
-        <div className={styles.logo}>🎵 Jemya</div>
+        <div className={styles.logo}>
+          <img src="/music-svgrepo-com.svg" alt="" className={styles.logoIcon} />
+          Jemya
+        </div>
         {userDisplayName && (
           <div className={styles.user}>
             <span>{userDisplayName}</span>

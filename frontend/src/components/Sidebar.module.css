@@ -16,10 +16,20 @@
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 1.2rem;
   font-weight: 700;
   color: #3B7EA5;
   margin-bottom: 8px;
+}
+
+.logoIcon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px rgba(71, 188, 254, 0.4));
 }
 
 .user {
