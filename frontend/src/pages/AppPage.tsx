@@ -185,6 +185,14 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
       const { tracks } = await extractTracks(chat.lastSuggestions ?? []);
       const result = await applyChanges(tokenInfo, selectedPlaylist.id, tracks);
       setApplyResult(result);
+
+      if (result.success) {
+        // Fetch the now-live playlist and inject the refreshed table into chat
+        const freshTracks = await getPlaylistTracks(tokenInfo, selectedPlaylist.id);
+        updatePlaylistCount(selectedPlaylist.id, freshTracks.length);
+        const tableContent = buildTracksTable(selectedPlaylist, freshTracks);
+        chat.injectMessage(tableContent, 'user');
+      }
     } catch (e) {
       console.error(e);
     } finally {
