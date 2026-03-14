@@ -115,7 +115,6 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     setPreviewData(null);
     setApplyResult(null);
 
-    chat.injectMessage(`**Loading playlist: ${p.name}**...`, 'assistant');
     setPlaylistLoading(true);
 
     try {
@@ -131,13 +130,9 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         // Restore previous conversation — tracks table is already embedded in the history
         chat.restoreMessages(savedMessages);
       } else {
-        // Fresh start: inject welcome message + tracks table
+        // Fresh start: inject tracks table only
         const tableContent = buildTracksTable(p, tracks);
         chat.clearMessages();
-        chat.injectMessage(
-          `**Analyzing playlist: ${p.name}**\n\nI'm ready to help! I can:\n• **Enrich this playlist**: Analyze flow, insert tracks at optimal positions, and create smooth transitions\n• **Cross-playlist operations**: Combine, merge, split, or reorganize multiple playlists\n\nJust tell me what you'd like to do!`,
-          'assistant',
-        );
         chat.injectMessage(tableContent, 'user');
       }
     } catch (e) {
