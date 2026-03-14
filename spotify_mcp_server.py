@@ -70,8 +70,22 @@ class SpotifyMCPServer:
                     }
                 ),
                 Tool(
+                    name="get_current_user",
+                    description="Get the current authenticated Spotify user's profile, including their user ID and display name. Call this first when you need to filter playlists by owner or identify 'my playlists'.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "access_token": {
+                                "type": "string",
+                                "description": "Spotify access token"
+                            }
+                        },
+                        "required": []
+                    }
+                ),
+                Tool(
                     name="list_playlists",
-                    description="List playlists for the authenticated user. By default, fetches ALL playlists (with automatic paging). You can specify a limit to fetch only a subset. Use this FIRST to discover playlist IDs and names.",
+                    description="List playlists for the authenticated user with automatic paging. Returns ALL playlists by default. Use owner_id to filter server-side to only playlists created by a specific user (get the ID from get_current_user first).",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -79,9 +93,9 @@ class SpotifyMCPServer:
                                 "type": "string",
                                 "description": "Optional Spotify access token for authentication"
                             },
-                            "limit": {
-                                "type": "number",
-                                "description": "Maximum number of playlists to return. Omit or use a large number (e.g., 999) to fetch all playlists."
+                            "owner_id": {
+                                "type": "string",
+                                "description": "If provided, return only playlists where owner_id matches this value. Use get_current_user() to get the current user's ID when filtering for 'my playlists'."
                             }
                         },
                         "required": []
@@ -216,7 +230,9 @@ class SpotifyMCPServer:
             try:
                 logger.info(f"Executing tool: {name} with arguments: {arguments}")
                 
-                if name == "read_playlist":
+                if name == "get_current_user":
+                    result = await self._get_current_user(arguments)
+                elif name == "read_playlist":
                     result = await self._read_playlist(arguments)
                 elif name == "list_playlists":
                     result = await self._list_playlists(arguments)
@@ -311,9 +327,21 @@ class SpotifyMCPServer:
                     'message': f'Failed to read playlist: {error_message}'
                 }
     
-    async def _list_playlists(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """List user's playlists with full pagination"""
+    async def _get_current_user(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get current authenticated user's profile"""
         access_token = args.get("access_token")
+        sp = self._get_spotify_client(access_token)
+        me = sp.current_user()
+        return {
+            "user_id": me.get("id"),
+            "display_name": me.get("display_name") or me.get("id"),
+            "email": me.get("email"),
+        }
+
+    async def _list_playlists(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """List user's playlists with full pagination and optional owner filtering"""
+        access_token = args.get("access_token")
+        owner_id_filter = args.get("owner_id")  # Server-side filter
         
         sp = self._get_spotify_client(access_token)
         
@@ -345,8 +373,13 @@ class SpotifyMCPServer:
                 "collaborative": p.get("collaborative"),
             })
         
+        # Apply server-side owner filter if requested
+        if owner_id_filter:
+            playlists = [p for p in playlists if p["owner_id"] == owner_id_filter]
+        
         return {
             'count': len(playlists),
+            'total_before_filter': len(raw) if owner_id_filter else len(playlists),
             'playlists': playlists
         }
     
