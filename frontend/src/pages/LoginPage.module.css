@@ -18,8 +18,16 @@
 }
 
 .logo {
-  font-size: 3rem;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.logoImg {
+  width: 80px;
+  height: 80px;
+  /* Dark (#141B41) outlines fade into the card background, leaving the
+     #47BCFE blue ear-cup fills as the dominant visible shape — same look
+     as the browser tab favicon. drop-shadow adds a subtle blue glow. */
+  filter: drop-shadow(0 0 10px rgba(71, 188, 254, 0.45));
 }
 
 .title {

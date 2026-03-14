@@ -14,7 +14,9 @@ export function LoginPage() {
   return (
     <div className={styles.container}>
       <div className={styles.card}>
-        <div className={styles.logo}>🎵</div>
+        <div className={styles.logo}>
+          <img src="/music-svgrepo-com.svg" alt="Jemya" className={styles.logoImg} />
+        </div>
         <h1 className={styles.title}>Jemya</h1>
         <p className={styles.subtitle}>Your AI-powered playlist companion</p>
         <button className={styles.loginBtn} onClick={handleLogin} disabled={loading}>
