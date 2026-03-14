@@ -5,6 +5,7 @@ Handles saving/loading conversations and user sessions for the Jemya playlist ge
 
 import json
 import os
+import tempfile
 import time
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +26,25 @@ class ConversationManager:
         """Generate file path for session storage"""
         return os.path.join(self.conversations_dir, f"{user_id}_session.json")
     
+    def _atomic_write(self, file_path: str, data: dict) -> None:
+        """Write JSON atomically via a temp file + rename.
+
+        Prevents partial reads if two requests write the same file concurrently.
+        os.replace() is atomic on POSIX and on Windows (Python 3.3+).
+        """
+        dir_name = os.path.dirname(file_path) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, file_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
     def save_user_session(self, user_id: str, current_playlist_id: Optional[str] = None, 
                          current_playlist_name: Optional[str] = None) -> None:
         """Save user's last session state"""
@@ -37,8 +57,7 @@ class ConversationManager:
                 "last_login_time": time.time()
             }
             
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(session_data, f, ensure_ascii=False, indent=2)
+            self._atomic_write(file_path, session_data)
             print(f"DEBUG: Saved session for user {user_id}, last playlist: {current_playlist_name}")
         except Exception as e:
             print(f"ERROR: Failed to save user session: {e}")
@@ -87,8 +106,7 @@ class ConversationManager:
                 conversation_data["playlist_snapshot"] = existing_snapshot
                 print(f"DEBUG: Preserving existing playlist snapshot")
                 
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(conversation_data, f, ensure_ascii=False, indent=2)
+            self._atomic_write(file_path, conversation_data)
             print(f"DEBUG: Saved conversation for user {user_id}, playlist {playlist_id}")
         except Exception as e:
             print(f"ERROR: Failed to save conversation: {e}")

@@ -1,8 +1,8 @@
 """
 MCP router – cross-playlist operations via Model Context Protocol.
 """
-import asyncio
 import logging
+import time
 import traceback
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -13,11 +13,9 @@ logger = logging.getLogger(__name__)
 
 from backend.models.schemas import MCPChatRequest
 from backend.services.ai_service import get_ai_manager
-from backend.services.spotify_service import SpotifyService
 from conversation_manager import ConversationManager
 
 router = APIRouter(tags=["mcp"])
-_spotify = SpotifyService()
 _conversation_manager = ConversationManager()
 
 
@@ -31,13 +29,15 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
     if not token_info or "access_token" not in token_info:
         raise HTTPException(status_code=401, detail="Valid token_info required for MCP mode")
 
-    access_token = token_info["access_token"]
+    # Raise 401 if the token is already expired so the frontend refreshes it.
+    # We must NOT refresh here — a backend-side refresh discards the new
+    # token_info (including the rotated refresh_token) and the frontend would
+    # later fail to refresh with the stale token it still holds.
+    expires_at = token_info.get("expires_at")
+    if expires_at and time.time() > float(expires_at):
+        raise HTTPException(status_code=401, detail="Spotify token expired – please refresh")
 
-    # Refresh token server-side if needed before passing to MCP tools
-    fresh = _spotify.refresh_token_if_needed(token_info)
-    if fresh is None:
-        raise HTTPException(status_code=401, detail="Token expired and refresh failed – please log in again.")
-    access_token = fresh["access_token"]
+    access_token = token_info["access_token"]
 
     history = [m.model_dump(exclude_none=True) for m in body.conversation_history]
 

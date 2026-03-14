@@ -23,6 +23,9 @@ class MCPManager:
         self.session: Optional[ClientSession] = None
         self.client_context = None
         self.tools_cache: Optional[List[Dict]] = None
+        # Serialise all MCP calls: the stdio transport is a single process
+        # that cannot handle concurrent requests from different users.
+        self._lock = asyncio.Lock()
         self._server_params = StdioServerParameters(
             command="python3.11",
             args=["spotify_mcp_server.py"],
@@ -108,7 +111,18 @@ class MCPManager:
     
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any],
                            access_token: Optional[str] = None) -> Any:
-        """Execute a single MCP tool"""
+        """Execute a single MCP tool.
+
+        Serialised with an asyncio.Lock because the underlying stdio transport
+        is a single subprocess: concurrent calls would interleave requests and
+        corrupt each other's responses.
+        """
+        async with self._lock:
+            return await self._execute_tool_locked(tool_name, arguments, access_token)
+
+    async def _execute_tool_locked(self, tool_name: str, arguments: Dict[str, Any],
+                                    access_token: Optional[str] = None) -> Any:
+        """Inner execution – must only be called while self._lock is held."""
         if not self.session:
             await self.connect()
         
