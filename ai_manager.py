@@ -105,7 +105,8 @@ class AIManager:
                 model="gpt-4o-mini",
                 messages=messages,
                 tools=tools,
-                tool_choice="auto"
+                tool_choice="auto",
+                max_tokens=8192,
             )
             
             assistant_message = response.choices[0].message
@@ -346,7 +347,8 @@ class AIManager:
             "• For write operations, clearly state what will change\n"
             "• Track URIs from read_playlist can be used directly in add/remove/replace operations\n"
             "• When enriching single playlists, prioritize flow and transitions\n"
-            "• When combining playlists, preserve track order unless user requests reordering\n\n"
+            "• When combining playlists, preserve track order unless user requests reordering\n"
+            "• LISTING RULE: When reporting playlists or tracks, ALWAYS state the exact total count from the tool result first. Then list ALL items — never truncate, summarize, or say 'and X more'. If the list is long, use a compact format (one per line) but include every single item.\n\n"
             "COMBINE PLAYLISTS EXAMPLE:\n"
             "User: 'Combine all my 2025 playlists'\n"
             "→ list_playlists() → filter by '2025' → read_playlist() × N → create_playlist('Combined 2025') → add_tracks()\n\n"
