@@ -108,7 +108,9 @@ export function Sidebar({
       {p.images?.[0]?.url ? (
         <img className={styles.thumb} src={p.images[0].url} alt="" />
       ) : (
-        <div className={styles.thumbPlaceholder}>🎵</div>
+        <div className={styles.thumbPlaceholder}>
+          <img src="/spotify-icon.svg" alt="" className={styles.thumbPlaceholderIcon} />
+        </div>
       )}
       <div className={styles.meta}>
         <span className={styles.name}>{p.name}</span>
