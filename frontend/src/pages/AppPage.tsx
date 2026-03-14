@@ -43,7 +43,10 @@ function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[]): string {
 
     let name = (track.name || 'Unknown').substring(0, 40);
     if ((track.name || '').length > 40) name += '...';
-    const nameDisplay = track.spotify_url ? `[${name}](${track.spotify_url})` : name;
+    const trackUrl = track.spotify_url
+      ? `${track.spotify_url}?context=spotify:playlist:${playlist.id}`
+      : null;
+    const nameDisplay = trackUrl ? `[${name}](${trackUrl})` : name;
 
     let artist = (track.artists || 'Unknown').substring(0, 30);
     if ((track.artists || '').length > 30) artist += '...';
