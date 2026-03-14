@@ -16,7 +16,7 @@ interface Props {
 
 export function AppPage({ tokenInfo, userInfo, onLogout }: Props) {
   const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistItem | null>(null);
-  const [mcpMode, setMcpMode] = useState(false);
+  const mcpMode = true;
 
   // Preview / apply state
   const [showPreview, setShowPreview] = useState(false);
@@ -81,8 +81,6 @@ export function AppPage({ tokenInfo, userInfo, onLogout }: Props) {
         loading={playlistsLoading}
         userDisplayName={userInfo?.display_name ?? userInfo?.id}
         onLogout={onLogout}
-        mcpMode={mcpMode}
-        onMcpToggle={setMcpMode}
       />
 
       <main className={styles.main}>
@@ -98,7 +96,6 @@ export function AppPage({ tokenInfo, userInfo, onLogout }: Props) {
                   <div className={styles.playlistMeta}>{selectedPlaylist.tracks_total} tracks</div>
                 )}
               </div>
-              {mcpMode && <span className={styles.mcpBadge}>MCP Mode</span>}
             </div>
 
             <ChatWindow

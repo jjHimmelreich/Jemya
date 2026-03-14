@@ -8,8 +8,6 @@ interface Props {
   loading?: boolean;
   userDisplayName?: string;
   onLogout?: () => void;
-  mcpMode: boolean;
-  onMcpToggle: (v: boolean) => void;
 }
 
 export function Sidebar({
@@ -19,8 +17,6 @@ export function Sidebar({
   loading,
   userDisplayName,
   onLogout,
-  mcpMode,
-  onMcpToggle,
 }: Props) {
   return (
     <aside className={styles.sidebar}>
@@ -34,18 +30,6 @@ export function Sidebar({
             </button>
           </div>
         )}
-      </div>
-
-      <div className={styles.mcpToggle}>
-        <label className={styles.toggle}>
-          <input
-            type="checkbox"
-            checked={mcpMode}
-            onChange={(e) => onMcpToggle(e.target.checked)}
-          />
-          <span className={styles.toggleLabel}>🔬 MCP Mode</span>
-        </label>
-        <p className={styles.mcpHint}>Enable cross-playlist operations</p>
       </div>
 
       <div className={styles.playlistsHeader}>Your Playlists</div>
