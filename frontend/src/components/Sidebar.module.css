@@ -1,0 +1,153 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  min-width: 220px;
+  background: #0a0a0a;
+  border-right: 1px solid #222;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.header {
+  padding: 20px 16px 12px;
+  border-bottom: 1px solid #222;
+}
+
+.logo {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1db954;
+  margin-bottom: 8px;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+
+.logoutBtn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  text-decoration: underline;
+}
+.logoutBtn:hover {
+  color: #ff6b6b;
+}
+
+.mcpToggle {
+  padding: 12px 16px;
+  border-bottom: 1px solid #222;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.toggleLabel {
+  font-size: 0.88rem;
+  color: #ccc;
+  font-weight: 500;
+}
+
+.mcpHint {
+  font-size: 0.74rem;
+  color: #666;
+  margin: 4px 0 0 24px;
+}
+
+.playlistsHeader {
+  padding: 12px 16px 6px;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #666;
+  font-weight: 600;
+}
+
+.loading {
+  color: #666;
+  font-size: 0.85rem;
+  padding: 12px 16px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.item:hover {
+  background: #1a1a1a;
+}
+.item.active {
+  background: #1db954;
+  color: #fff;
+}
+.item.active .count {
+  color: rgba(255,255,255,0.7);
+}
+
+.thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.thumbPlaceholder {
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+  background: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.name {
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e0e0e0;
+}
+.item.active .name {
+  color: #fff;
+}
+
+.count {
+  font-size: 0.75rem;
+  color: #777;
+}

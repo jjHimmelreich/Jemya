@@ -1,0 +1,52 @@
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  font-size: 0.93rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.user {
+  align-self: flex-end;
+  background: #1db954;
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+
+.assistant {
+  align-self: flex-start;
+  background: #282828;
+  color: #e0e0e0;
+  border-bottom-left-radius: 3px;
+}
+
+.label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.65;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.content p {
+  margin: 0 0 0.5em;
+}
+.content p:last-child {
+  margin-bottom: 0;
+}
+.content ul,
+.content ol {
+  margin: 0.3em 0 0.3em 1.2em;
+  padding: 0;
+}
+.content code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.87em;
+}
