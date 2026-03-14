@@ -236,7 +236,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
           </>
         ) : (
           <div className={styles.noSelection}>
-            <span>👈 Select a playlist to get started</span>
+            <span>← Select a playlist to get started</span>
           </div>
         )}
       </main>
