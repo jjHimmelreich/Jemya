@@ -59,6 +59,11 @@
   font-size: 1rem;
   font-weight: 600;
   color: #e0e0e0;
+  text-decoration: none;
+}
+.playlistName:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .playlistMeta {

@@ -214,7 +214,14 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
                 <img className={styles.playlistThumb} src={selectedPlaylist.images[0].url} alt="" />
               )}
               <div>
-                <div className={styles.playlistName}>{selectedPlaylist.name}</div>
+                <a
+                  className={styles.playlistName}
+                  href={`https://open.spotify.com/playlist/${selectedPlaylist.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {selectedPlaylist.name}
+                </a>
                 {selectedPlaylist.tracks_total !== undefined && (
                   <div className={styles.playlistMeta}>{selectedPlaylist.tracks_total} tracks</div>
                 )}
