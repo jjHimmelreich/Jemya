@@ -30,14 +30,14 @@ export function useAuth() {
     }
   }, [tokenInfo]);
 
-  // Handle OAuth callback code in URL
+  // Handle Spotify OAuth callback: http://127.0.0.1:5555/callback?code=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     if (code) {
       setLoading(true);
-      // Remove code from URL without reload
-      window.history.replaceState({}, '', window.location.pathname);
+      // Redirect back to root after consuming the code
+      window.history.replaceState({}, '', '/');
       exchangeCode(code)
         .then((token) => setTokenInfo(token))
         .catch(console.error)
