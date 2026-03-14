@@ -68,5 +68,10 @@ export function useChat(params: {
     setLastSuggestions(null);
   }, []);
 
-  return { messages, isLoading, error, lastSuggestions, send, clearMessages };
+  const injectMessage = useCallback((content: string, role: 'user' | 'assistant' = 'user') => {
+    const msg: ChatMessage = { id: uid(), role, content, timestamp: Date.now() };
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
+  return { messages, isLoading, error, lastSuggestions, send, clearMessages, injectMessage };
 }

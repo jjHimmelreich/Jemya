@@ -18,6 +18,12 @@
   border-bottom-right-radius: 3px;
 }
 
+/* Playlist context dumps (tracks tables) need more room */
+.user:has(table) {
+  max-width: 96%;
+  align-self: stretch;
+}
+
 .assistant {
   align-self: flex-start;
   background: #282828;
@@ -49,4 +55,35 @@
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 0.87em;
+}
+
+/* Markdown table styles */
+.content table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  display: block;
+}
+.content thead {
+  background: rgba(0, 0, 0, 0.25);
+}
+.content th,
+.content td {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  text-align: left;
+  white-space: nowrap;
+}
+.content th {
+  font-weight: 600;
+}
+.content tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.12);
+}
+.content a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

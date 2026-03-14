@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '../types';
 import styles from './MessageBubble.module.css';
 
@@ -12,11 +13,7 @@ export function MessageBubble({ message }: Props) {
     <div className={`${styles.bubble} ${isUser ? styles.user : styles.assistant}`}>
       <div className={styles.label}>{isUser ? 'You' : 'Jemya'}</div>
       <div className={styles.content}>
-        {isUser ? (
-          <span>{message.content}</span>
-        ) : (
-          <ReactMarkdown>{message.content}</ReactMarkdown>
-        )}
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
       </div>
     </div>
   );
