@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import MemoryCacheHandler
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -27,17 +28,18 @@ class SpotifyService:
             "playlist-modify-public playlist-modify-private "
             "user-modify-playback-state"
         )
-        self.cache_path = ".spotify_token_cache"
 
     # ── Auth ──────────────────────────────────────────────────────────────────
 
     def get_spotify_oauth(self) -> SpotifyOAuth:
+        # MemoryCacheHandler prevents spotipy from writing a .cache file to disk.
+        # Tokens are owned by the React frontend and passed in each request.
         return SpotifyOAuth(
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
             scope=self.scope,
-            cache_path=self.cache_path,
+            cache_handler=MemoryCacheHandler(),
         )
 
     def get_auth_url(self) -> str:

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import MemoryCacheHandler
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
@@ -34,13 +35,13 @@ class SpotifyMCPServer:
         if access_token:
             return spotipy.Spotify(auth=access_token)
         
-        # Fallback to OAuth flow
+        # Fallback to OAuth flow (access_token is always provided in production)
         auth_manager = SpotifyOAuth(
             client_id=conf.SPOTIFY_CLIENT_ID,
             client_secret=conf.SPOTIFY_CLIENT_SECRET,
             redirect_uri=conf.SPOTIFY_REDIRECT_URI,
             scope="user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state",
-            cache_path=".spotify_token_cache"
+            cache_handler=MemoryCacheHandler(),
         )
         return spotipy.Spotify(auth_manager=auth_manager)
     
