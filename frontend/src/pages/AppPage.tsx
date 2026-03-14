@@ -23,7 +23,8 @@ function formatTime(ms: number): string {
 function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[]): string {
   const ownerName = playlist.owner_name || 'Unknown';
   const isPublic = playlist.public;
-  let table = `## ${playlist.name}\n\n`;
+  const spotifyUrl = `https://open.spotify.com/playlist/${playlist.id}`;
+  let table = `## ![](/spotify-icon.svg) [${playlist.name}](${spotifyUrl})\n\n`;
   table += `**Playlist ID:** \`${playlist.id}\`\n`;
   table += `**Created by:** ${ownerName} • **${tracks.length} tracks** • ${isPublic ? 'Public' : 'Private'}\n\n`;
 

@@ -87,3 +87,13 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Spotify icon in h2 playlist titles */
+.content h2 img {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  margin-right: 5px;
+  opacity: 0.85;
+  display: inline;
+}

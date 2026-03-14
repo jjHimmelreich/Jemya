@@ -13,7 +13,18 @@ export function MessageBubble({ message }: Props) {
     <div className={`${styles.bubble} ${isUser ? styles.user : styles.assistant}`}>
       <div className={styles.label}>{isUser ? 'You' : 'Jemya'}</div>
       <div className={styles.content}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children, ...props }) => (
+              <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
       </div>
     </div>
   );
