@@ -2,17 +2,74 @@
   display: flex;
   flex-direction: column;
   width: 280px;
-  min-width: 220px;
+  min-width: 280px;
   background: #0a0a0a;
   border-right: 1px solid #222;
   height: 100vh;
   overflow: hidden;
   flex-shrink: 0;
+  transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 48px;
+  min-width: 48px;
+}
+
+/* Mobile: sidebar slides in as a fixed overlay */
+@media (max-width: 640px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 200;
+    height: 100dvh;
+  }
+
+  /* Collapsed on mobile: shrink to a 40px strip showing only the toggle */
+  .sidebar.collapsed {
+    width: 40px;
+    min-width: 40px;
+    border-right: 1px solid #222;
+  }
+}
+
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 199;
+  }
 }
 
 .header {
-  padding: 20px 16px 12px;
+  padding: 14px 12px 12px;
   border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed .header {
+  padding: 12px 0;
+  border-bottom: 1px solid #222;
+}
+
+.logoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+/* When collapsed, only the toggle button is rendered — centre it */
+.sidebar.collapsed .logoRow {
+  justify-content: center;
+  margin-bottom: 0;
 }
 
 .logo {
@@ -22,7 +79,8 @@
   font-size: 1.2rem;
   font-weight: 700;
   color: #3B7EA5;
-  margin-bottom: 8px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .logoIcon {
@@ -30,6 +88,36 @@
   height: 22px;
   flex-shrink: 0;
   filter: drop-shadow(0 0 4px rgba(71, 188, 254, 0.4));
+}
+
+.toggleBtn {
+  background: none;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #666;
+  font-size: 1.1rem;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.toggleBtn:hover {
+  border-color: #3B7EA5;
+  color: #3B7EA5;
+}
+
+/* On mobile, make the toggle button a bit larger for touch */
+@media (max-width: 640px) {
+  .toggleBtn {
+    width: 32px;
+    height: 32px;
+    font-size: 1.3rem;
+  }
 }
 
 .user {

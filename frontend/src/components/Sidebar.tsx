@@ -49,6 +49,7 @@ export function Sidebar({
   onCreatePlaylist,
   onRefresh,
 }: Props) {
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth <= 640);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -119,36 +120,55 @@ export function Sidebar({
   );
 
   return (
-    <aside className={styles.sidebar}>
-      <div className={styles.header}>
-        <div className={styles.logo}>
-          <img src="/music-svgrepo-com.svg" alt="" className={styles.logoIcon} />
-          Jemya
-        </div>
-        {userDisplayName && (
-          <div className={styles.user}>
-            <span>{userDisplayName}</span>
-            <button className={styles.logoutBtn} onClick={onLogout}>
-              Log out
+    <>
+      {/* Mobile backdrop — closes sidebar when tapping outside */}
+      {!collapsed && (
+        <div className={styles.backdrop} onClick={() => setCollapsed(true)} />
+      )}
+
+      <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
+        <div className={styles.header}>
+          <div className={styles.logoRow}>
+            {!collapsed && (
+              <div className={styles.logo}>
+                <img src="/music-svgrepo-com.svg" alt="" className={styles.logoIcon} />
+                Jemya
+              </div>
+            )}
+            <button
+              className={styles.toggleBtn}
+              onClick={() => setCollapsed((v) => !v)}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {collapsed ? '›' : '‹'}
             </button>
           </div>
-        )}
-      </div>
+          {!collapsed && userDisplayName && (
+            <div className={styles.user}>
+              <span>{userDisplayName}</span>
+              <button className={styles.logoutBtn} onClick={onLogout}>
+                Log out
+              </button>
+            </div>
+          )}
+        </div>
 
-      <div className={styles.searchBox}>
-        <input
-          className={styles.searchInput}
-          type="text"
-          placeholder="Search playlists…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {search && (
-          <button className={styles.clearBtn} onClick={() => setSearch('')}>✕</button>
+        {!collapsed && (
+          <div className={styles.searchBox}>
+            <input
+              className={styles.searchInput}
+              type="text"
+              placeholder="Search playlists…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className={styles.clearBtn} onClick={() => setSearch('')}>✕</button>
+            )}
+          </div>
         )}
-      </div>
 
-      {onCreatePlaylist && (
+        {!collapsed && onCreatePlaylist && (
         <div className={styles.createSection}>
           {!showCreate ? (
             <div className={styles.createRow}>
@@ -199,34 +219,35 @@ export function Sidebar({
             </form>
           )}
         </div>
-      )}
+        )}
 
-      {loading ? (
-        <div className={styles.loading}>Loading playlists…</div>
-      ) : (
-        <div className={styles.listContainer}>
-          {myPlaylists.length > 0 && (
-            <CollapsibleGroup title="My Playlists" count={myPlaylists.length} defaultOpen={true}>
-              <ul className={styles.list}>{myPlaylists.map(renderItem)}</ul>
-            </CollapsibleGroup>
-          )}
+        {loading && !collapsed ? (
+          <div className={styles.loading}>Loading playlists…</div>
+        ) : !collapsed ? (
+          <div className={styles.listContainer}>
+            {myPlaylists.length > 0 && (
+              <CollapsibleGroup title="My Playlists" count={myPlaylists.length} defaultOpen={true}>
+                <ul className={styles.list}>{myPlaylists.map(renderItem)}</ul>
+              </CollapsibleGroup>
+            )}
 
-          {byOwner.map(([ownerId, { name, playlists: ownerPlaylists }]) => (
-            <CollapsibleGroup
-              key={ownerId}
-              title={name}
-              count={ownerPlaylists.length}
-              defaultOpen={false}
-            >
-              <ul className={styles.list}>{ownerPlaylists.map(renderItem)}</ul>
-            </CollapsibleGroup>
-          ))}
+            {byOwner.map(([ownerId, { name, playlists: ownerPlaylists }]) => (
+              <CollapsibleGroup
+                key={ownerId}
+                title={name}
+                count={ownerPlaylists.length}
+                defaultOpen={false}
+              >
+                <ul className={styles.list}>{ownerPlaylists.map(renderItem)}</ul>
+              </CollapsibleGroup>
+            ))}
 
-          {filtered.length === 0 && (
-            <div className={styles.noResults}>No playlists match "{search}"</div>
-          )}
-        </div>
-      )}
-    </aside>
+            {filtered.length === 0 && (
+              <div className={styles.noResults}>No playlists match "{search}"</div>
+            )}
+          </div>
+        ) : null}
+      </aside>
+    </>
   );
 }
