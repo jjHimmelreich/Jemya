@@ -12,6 +12,30 @@ interface Props {
   onLogout?: () => void;
 }
 
+function CollapsibleGroup({
+  title,
+  count,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button className={styles.groupHeader} onClick={() => setOpen((v) => !v)}>
+        <span className={styles.groupChevron}>{open ? '▾' : '▸'}</span>
+        <span className={styles.groupTitle}>{title}</span>
+        <span className={styles.groupCount}>{count}</span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
 export function Sidebar({
   playlists,
   selectedId,
@@ -29,7 +53,22 @@ export function Sidebar({
   }, [playlists, search]);
 
   const myPlaylists = filtered.filter((p) => p.owner_id === userId);
-  const otherPlaylists = filtered.filter((p) => p.owner_id !== userId);
+
+  // Group others by owner
+  const byOwner = useMemo(() => {
+    const map = new Map<string, { name: string; playlists: PlaylistItem[] }>();
+    for (const p of filtered) {
+      if (p.owner_id === userId) continue;
+      const key = p.owner_id ?? 'unknown';
+      if (!map.has(key)) {
+        map.set(key, { name: p.owner_name ?? p.owner_id ?? 'Unknown', playlists: [] });
+      }
+      map.get(key)!.playlists.push(p);
+    }
+    return Array.from(map.entries()).sort((a, b) =>
+      a[1].name.localeCompare(b[1].name),
+    );
+  }, [filtered, userId]);
 
   const renderItem = (p: PlaylistItem) => (
     <li
@@ -83,17 +122,22 @@ export function Sidebar({
       ) : (
         <div className={styles.listContainer}>
           {myPlaylists.length > 0 && (
-            <>
-              <div className={styles.groupHeader}>My Playlists</div>
+            <CollapsibleGroup title="My Playlists" count={myPlaylists.length} defaultOpen={true}>
               <ul className={styles.list}>{myPlaylists.map(renderItem)}</ul>
-            </>
+            </CollapsibleGroup>
           )}
-          {otherPlaylists.length > 0 && (
-            <>
-              <div className={styles.groupHeader}>Followed & Collaborative</div>
-              <ul className={styles.list}>{otherPlaylists.map(renderItem)}</ul>
-            </>
-          )}
+
+          {byOwner.map(([ownerId, { name, playlists: ownerPlaylists }]) => (
+            <CollapsibleGroup
+              key={ownerId}
+              title={name}
+              count={ownerPlaylists.length}
+              defaultOpen={false}
+            >
+              <ul className={styles.list}>{ownerPlaylists.map(renderItem)}</ul>
+            </CollapsibleGroup>
+          ))}
+
           {filtered.length === 0 && (
             <div className={styles.noResults}>No playlists match "{search}"</div>
           )}

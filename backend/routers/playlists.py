@@ -32,6 +32,7 @@ def get_user_playlists(body: GetUserPlaylistsRequest) -> List[Dict[str, Any]]:
             "images": p.get("images", []),
             "tracks_total": p.get("tracks", {}).get("total", 0) if p.get("tracks") else 0,
             "owner_id": p.get("owner", {}).get("id", ""),
+            "owner_name": p.get("owner", {}).get("display_name") or p.get("owner", {}).get("id", "Unknown"),
         }
         for p in playlists
         if p

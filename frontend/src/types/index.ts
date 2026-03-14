@@ -24,6 +24,7 @@ export interface PlaylistItem {
   images?: Array<{ url: string }>;
   tracks_total?: number;
   owner_id?: string;
+  owner_name?: string;
 }
 
 export interface TrackItem {

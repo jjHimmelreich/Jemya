@@ -91,12 +91,43 @@
 }
 
 .groupHeader {
-  padding: 10px 16px 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 16px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: #555;
+}
+.groupHeader:hover {
+  color: #888;
+}
+
+.groupChevron {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.groupTitle {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.09em;
-  color: #555;
   font-weight: 700;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  font-size: 0.68rem;
+  background: #222;
+  border-radius: 8px;
+  padding: 1px 6px;
+  flex-shrink: 0;
 }
 
 .noResults {
