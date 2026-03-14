@@ -210,20 +210,8 @@ class MCPManager:
             Summarized result with only essential information
         """
         if tool_name == "list_playlists" and "playlists" in result:
-            # For playlists, keep only essential fields
-            playlists = result["playlists"]
-            summarized = []
-            for p in playlists:
-                summarized.append({
-                    "id": p.get("id"),
-                    "name": p.get("name"),
-                    "track_count": p.get("tracks", {}).get("total") if isinstance(p.get("tracks"), dict) else p.get("track_count", 0),
-                    "owner": p.get("owner", {}).get("display_name") if isinstance(p.get("owner"), dict) else p.get("owner")
-                })
-            return {
-                "count": result.get("count", len(summarized)),
-                "playlists": summarized
-            }
+            # Data is already pre-summarized by the MCP server; pass through as-is
+            return result
         
         elif tool_name == "read_playlist" and "tracks" in result:
             # For playlist tracks, keep essential fields but can be verbose

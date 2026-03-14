@@ -312,28 +312,38 @@ class SpotifyMCPServer:
                 }
     
     async def _list_playlists(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """List user's playlists - reuses spotify_manager.py implementation"""
+        """List user's playlists with full pagination"""
         access_token = args.get("access_token")
-        limit = args.get("limit", 999)  # Default to fetching all playlists
         
         sp = self._get_spotify_client(access_token)
         
         # Fetch all playlists with pagination
-        playlists = []
+        raw = []
         offset = 0
         page_limit = 50
         while True:
             response = sp.current_user_playlists(offset=offset, limit=page_limit)
             if not response or 'items' not in response:
                 break
-            playlists.extend(response['items'])
+            # Spotify can return null items for inaccessible playlists — skip them
+            raw.extend([p for p in response['items'] if p is not None])
             if len(response['items']) < page_limit:
                 break
             offset += page_limit
         
-        # Apply limit if specified
-        if limit and len(playlists) > limit:
-            playlists = playlists[:limit]
+        # Return only the fields the AI needs — keeps the stdio payload small
+        playlists = []
+        for p in raw:
+            owner = p.get("owner") or {}
+            playlists.append({
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "track_count": (p.get("tracks") or {}).get("total", 0),
+                "owner_id": owner.get("id"),
+                "owner_name": owner.get("display_name") or owner.get("id"),
+                "public": p.get("public"),
+                "collaborative": p.get("collaborative"),
+            })
         
         return {
             'count': len(playlists),
