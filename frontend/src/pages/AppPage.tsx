@@ -80,6 +80,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout }: Props) {
         onSelect={handleSelectPlaylist}
         loading={playlistsLoading}
         userDisplayName={userInfo?.display_name ?? userInfo?.id}
+        userId={userInfo?.id}
         onLogout={onLogout}
       />
 
