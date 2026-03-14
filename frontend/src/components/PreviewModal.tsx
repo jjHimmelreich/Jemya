@@ -24,7 +24,7 @@ export function PreviewModal({ preview, applying, applyResult, onApply, onClose 
         {applyResult ? (
           <div className={styles.result}>
             <div className={styles.success}>
-              ✅ Applied successfully! {applyResult.added_count} track(s) added.
+              Applied successfully! {applyResult.added_count} track(s) added.
             </div>
             {applyResult.not_found_count > 0 && (
               <div className={styles.warn}>
