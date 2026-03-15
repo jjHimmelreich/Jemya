@@ -43,8 +43,9 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
 
     # Use the persistent MCP manager from app state (started once at startup)
     mcp_manager = getattr(request.app.state, "mcp_manager", None)
-    if mcp_manager is None:
-        raise HTTPException(status_code=503, detail="MCP server is not available")
+    # mcp_manager may be None if the MCP server failed to start (e.g. missing
+    # config).  In that case we fall back to plain OpenAI without tool calls so
+    # the user still gets AI assistance, just without live Spotify tool access.
 
     try:
         ai_manager = get_ai_manager(mcp_manager=mcp_manager)
@@ -52,7 +53,7 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
         # Inject system message if missing
         if not any(m.get("role") == "system" for m in history):
             system_msg = ai_manager.generate_system_message(
-                has_spotify_connection=True, mcp_mode=True
+                has_spotify_connection=True, mcp_mode=mcp_manager is not None
             )
             history.insert(0, {"role": "system", "content": system_msg})
 
@@ -73,11 +74,23 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
                     msg["content"] += active_ctx
                     break
 
-        result = await ai_manager.generate_with_mcp(
-            user_message=body.user_message,
-            conversation_history=history,
-            access_token=access_token,
-        )
+        if mcp_manager is not None:
+            result = await ai_manager.generate_with_mcp(
+                user_message=body.user_message,
+                conversation_history=history,
+                access_token=access_token,
+            )
+        else:
+            # MCP server unavailable — plain OpenAI call (no Spotify tools)
+            logger.warning("MCP server unavailable, falling back to plain OpenAI")
+            messages = history + [{"role": "user", "content": body.user_message}]
+            response = ai_manager.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                max_tokens=8192,
+            )
+            assistant_content = response.choices[0].message.content
+            result = {"response": assistant_content, "tool_calls": [], "tool_results": []}
 
         # Persist the conversation after every successful response
         if body.user_id and body.playlist_id:
