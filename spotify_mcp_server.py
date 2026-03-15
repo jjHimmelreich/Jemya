@@ -15,7 +15,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-import conf
+import configuration_manager as conf
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
