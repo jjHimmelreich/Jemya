@@ -12,6 +12,7 @@ env:
   ECR_REPOSITORY: jemya
   APP_NAME: jemya
   AWS_DEFAULT_REGION: eu-west-1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # 🏗️ Build Docker Image Once (SINGLE SOURCE OF TRUTH)
@@ -42,7 +43,7 @@ jobs:
 
     - name: 🏗️ Build and export Docker image
       id: build
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         platforms: linux/amd64
