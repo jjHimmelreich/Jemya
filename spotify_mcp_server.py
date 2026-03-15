@@ -10,12 +10,12 @@ from typing import Any, Dict, List, Optional
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import MemoryCacheHandler
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 import conf
-from spotify_manager import SpotifyManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,13 +35,13 @@ class SpotifyMCPServer:
         if access_token:
             return spotipy.Spotify(auth=access_token)
         
-        # Fallback to OAuth flow
+        # Fallback to OAuth flow (access_token is always provided in production)
         auth_manager = SpotifyOAuth(
             client_id=conf.SPOTIFY_CLIENT_ID,
             client_secret=conf.SPOTIFY_CLIENT_SECRET,
             redirect_uri=conf.SPOTIFY_REDIRECT_URI,
             scope="user-read-playback-state user-library-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-modify-playback-state",
-            cache_path=".spotify_token_cache"
+            cache_handler=MemoryCacheHandler(),
         )
         return spotipy.Spotify(auth_manager=auth_manager)
     
@@ -71,8 +71,22 @@ class SpotifyMCPServer:
                     }
                 ),
                 Tool(
+                    name="get_current_user",
+                    description="Get the current authenticated Spotify user's profile, including their user ID and display name. Call this first when you need to filter playlists by owner or identify 'my playlists'.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "access_token": {
+                                "type": "string",
+                                "description": "Spotify access token"
+                            }
+                        },
+                        "required": []
+                    }
+                ),
+                Tool(
                     name="list_playlists",
-                    description="List playlists for the authenticated user. By default, fetches ALL playlists (with automatic paging). You can specify a limit to fetch only a subset. Use this FIRST to discover playlist IDs and names.",
+                    description="List playlists for the authenticated user with automatic paging. Returns ALL playlists by default. Use owner_id to filter server-side to only playlists created by a specific user (get the ID from get_current_user first).",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -80,9 +94,9 @@ class SpotifyMCPServer:
                                 "type": "string",
                                 "description": "Optional Spotify access token for authentication"
                             },
-                            "limit": {
-                                "type": "number",
-                                "description": "Maximum number of playlists to return. Omit or use a large number (e.g., 999) to fetch all playlists."
+                            "owner_id": {
+                                "type": "string",
+                                "description": "If provided, return only playlists where owner_id matches this value. Use get_current_user() to get the current user's ID when filtering for 'my playlists'."
                             }
                         },
                         "required": []
@@ -217,7 +231,9 @@ class SpotifyMCPServer:
             try:
                 logger.info(f"Executing tool: {name} with arguments: {arguments}")
                 
-                if name == "read_playlist":
+                if name == "get_current_user":
+                    result = await self._get_current_user(arguments)
+                elif name == "read_playlist":
                     result = await self._read_playlist(arguments)
                 elif name == "list_playlists":
                     result = await self._list_playlists(arguments)
@@ -312,22 +328,59 @@ class SpotifyMCPServer:
                     'message': f'Failed to read playlist: {error_message}'
                 }
     
-    async def _list_playlists(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """List user's playlists - reuses spotify_manager.py implementation"""
+    async def _get_current_user(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get current authenticated user's profile"""
         access_token = args.get("access_token")
-        limit = args.get("limit", 999)  # Default to fetching all playlists
+        sp = self._get_spotify_client(access_token)
+        me = sp.current_user()
+        return {
+            "user_id": me.get("id"),
+            "display_name": me.get("display_name") or me.get("id"),
+            "email": me.get("email"),
+        }
+
+    async def _list_playlists(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """List user's playlists with full pagination and optional owner filtering"""
+        access_token = args.get("access_token")
+        owner_id_filter = args.get("owner_id")  # Server-side filter
         
         sp = self._get_spotify_client(access_token)
         
-        # Reuse the shared helper method from spotify_manager
-        playlists = SpotifyManager.fetch_all_playlists_from_spotify(sp)
+        # Fetch all playlists with pagination
+        raw = []
+        offset = 0
+        page_limit = 50
+        while True:
+            response = sp.current_user_playlists(offset=offset, limit=page_limit)
+            if not response or 'items' not in response:
+                break
+            # Spotify can return null items for inaccessible playlists — skip them
+            raw.extend([p for p in response['items'] if p is not None])
+            if len(response['items']) < page_limit:
+                break
+            offset += page_limit
         
-        # Apply limit if specified
-        if limit and len(playlists) > limit:
-            playlists = playlists[:limit]
+        # Return only the fields the AI needs — keeps the stdio payload small
+        playlists = []
+        for p in raw:
+            owner = p.get("owner") or {}
+            playlists.append({
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "track_count": (p.get("tracks") or {}).get("total", 0),
+                "owner_id": owner.get("id"),
+                "owner_name": owner.get("display_name") or owner.get("id"),
+                "public": p.get("public"),
+                "collaborative": p.get("collaborative"),
+            })
+        
+        # Apply server-side owner filter if requested
+        if owner_id_filter:
+            playlists = [p for p in playlists if p["owner_id"] == owner_id_filter]
         
         return {
             'count': len(playlists),
+            'total_before_filter': len(raw) if owner_id_filter else len(playlists),
             'playlists': playlists
         }
     
@@ -382,25 +435,39 @@ class SpotifyMCPServer:
         }
     
     async def _add_tracks(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Add tracks to playlist"""
+        """Add tracks to playlist, skipping any URIs already present (idempotent)."""
         playlist_id = args["playlist_id"]
         track_uris = args["track_uris"]
         position = args.get("position")
         access_token = args.get("access_token")
-        
+
         sp = self._get_spotify_client(access_token)
-        
+
+        # Fetch current track URIs to avoid adding duplicates
+        existing_uris: set = set()
+        results = sp.playlist_items(playlist_id, fields='items(track(uri)),next', limit=100)
+        while results:
+            for item in (results.get('items') or []):
+                track = (item or {}).get('track')
+                if track and track.get('uri'):
+                    existing_uris.add(track['uri'])
+            results = sp.next(results) if results.get('next') else None
+
+        new_uris = [u for u in track_uris if u not in existing_uris]
+        skipped_count = len(track_uris) - len(new_uris)
+
         # Add in batches of 100
         added_count = 0
-        for i in range(0, len(track_uris), 100):
-            batch = track_uris[i:i+100]
+        for i in range(0, len(new_uris), 100):
+            batch = new_uris[i:i+100]
             sp.playlist_add_items(playlist_id, batch, position=position)
             added_count += len(batch)
-        
+
         return {
             'success': True,
             'playlist_id': playlist_id,
-            'added_count': added_count
+            'added_count': added_count,
+            'skipped_duplicates': skipped_count,
         }
     
     async def _remove_tracks(self, args: Dict[str, Any]) -> Dict[str, Any]:

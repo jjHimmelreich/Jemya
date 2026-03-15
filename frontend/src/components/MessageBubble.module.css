@@ -1,0 +1,99 @@
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  font-size: 0.93rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.user {
+  align-self: flex-end;
+  background: #3B7EA5;
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+
+/* Playlist context dumps (tracks tables) need more room */
+.user:has(table) {
+  max-width: 96%;
+  align-self: stretch;
+}
+
+.assistant {
+  align-self: flex-start;
+  background: #282828;
+  color: #e0e0e0;
+  border-bottom-left-radius: 3px;
+}
+
+.label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.65;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.content p {
+  margin: 0 0 0.5em;
+}
+.content p:last-child {
+  margin-bottom: 0;
+}
+.content ul,
+.content ol {
+  margin: 0.3em 0 0.3em 1.2em;
+  padding: 0;
+}
+.content code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.87em;
+}
+
+/* Markdown table styles */
+.content table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  display: block;
+}
+.content thead {
+  background: rgba(0, 0, 0, 0.25);
+}
+.content th,
+.content td {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  text-align: left;
+  white-space: nowrap;
+}
+.content th {
+  font-weight: 600;
+}
+.content tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.12);
+}
+.content a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Spotify icon in h2 playlist titles */
+.content h2 img {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  margin-right: 5px;
+  opacity: 0.85;
+  display: inline;
+}

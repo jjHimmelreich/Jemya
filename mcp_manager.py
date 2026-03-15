@@ -1,5 +1,5 @@
 """
-MCP Manager - Integration layer between Streamlit UI and Spotify MCP Server
+MCP Manager - Integration layer between FastAPI backend and Spotify MCP Server
 Handles MCP client connection and converts tools for OpenAI function calling
 """
 import asyncio
@@ -23,6 +23,9 @@ class MCPManager:
         self.session: Optional[ClientSession] = None
         self.client_context = None
         self.tools_cache: Optional[List[Dict]] = None
+        # Serialise all MCP calls: the stdio transport is a single process
+        # that cannot handle concurrent requests from different users.
+        self._lock = asyncio.Lock()
         self._server_params = StdioServerParameters(
             command="python3.11",
             args=["spotify_mcp_server.py"],
@@ -106,15 +109,28 @@ class MCPManager:
             logger.error(f"Failed to get MCP tools: {e}")
             raise
     
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-        """Execute a single MCP tool"""
+    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any],
+                           access_token: Optional[str] = None) -> Any:
+        """Execute a single MCP tool.
+
+        Serialised with an asyncio.Lock because the underlying stdio transport
+        is a single subprocess: concurrent calls would interleave requests and
+        corrupt each other's responses.
+        """
+        async with self._lock:
+            return await self._execute_tool_locked(tool_name, arguments, access_token)
+
+    async def _execute_tool_locked(self, tool_name: str, arguments: Dict[str, Any],
+                                    access_token: Optional[str] = None) -> Any:
+        """Inner execution – must only be called while self._lock is held."""
         if not self.session:
             await self.connect()
         
         try:
-            # Add access token to arguments if available
-            if self.access_token and "access_token" not in arguments:
-                arguments["access_token"] = self.access_token
+            # Prefer explicitly passed token (for per-request isolation on shared instance)
+            token = access_token or self.access_token
+            if token and "access_token" not in arguments:
+                arguments["access_token"] = token
             
             logger.info(f"Executing tool: {tool_name}")
             result = await self.session.call_tool(tool_name, arguments)
@@ -129,16 +145,21 @@ class MCPManager:
             
         except Exception as e:
             logger.error(f"Failed to execute tool {tool_name}: {e}")
+            # Mark session as dead so next call triggers a reconnect
+            self.session = None
+            self.client_context = None
             return {"error": str(e)}
     
-    async def execute_tool_calls(self, tool_calls: List) -> List[Dict]:
+    async def execute_tool_calls(self, tool_calls: List,
+                                  access_token: Optional[str] = None) -> List[Dict]:
         """Execute multiple OpenAI function calls via MCP"""
         results = []
         
         for call in tool_calls:
             try:
                 arguments = json.loads(call.function.arguments)
-                result = await self.execute_tool(call.function.name, arguments)
+                result = await self.execute_tool(call.function.name, arguments,
+                                                 access_token=access_token)
                 
                 # Summarize result to reduce context size
                 summarized_result = self.summarize_tool_result(call.function.name, result)
@@ -203,20 +224,8 @@ class MCPManager:
             Summarized result with only essential information
         """
         if tool_name == "list_playlists" and "playlists" in result:
-            # For playlists, keep only essential fields
-            playlists = result["playlists"]
-            summarized = []
-            for p in playlists:
-                summarized.append({
-                    "id": p.get("id"),
-                    "name": p.get("name"),
-                    "track_count": p.get("tracks", {}).get("total") if isinstance(p.get("tracks"), dict) else p.get("track_count", 0),
-                    "owner": p.get("owner", {}).get("display_name") if isinstance(p.get("owner"), dict) else p.get("owner")
-                })
-            return {
-                "count": result.get("count", len(summarized)),
-                "playlists": summarized
-            }
+            # Data is already pre-summarized by the MCP server; pass through as-is
+            return result
         
         elif tool_name == "read_playlist" and "tracks" in result:
             # For playlist tracks, keep essential fields but can be verbose
@@ -243,70 +252,3 @@ class MCPManager:
         self.access_token = access_token
 
 
-# Synchronous wrapper functions for Streamlit
-class MCPManagerSync:
-    """Synchronous wrapper for MCPManager to use in Streamlit"""
-    
-    def __init__(self, access_token: Optional[str] = None):
-        self.access_token = access_token
-        self._manager: Optional[MCPManager] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-    
-    def _get_or_create_loop(self) -> asyncio.AbstractEventLoop:
-        """Get or create event loop for async operations"""
-        if self._loop is None or self._loop.is_closed():
-            try:
-                self._loop = asyncio.get_event_loop()
-            except RuntimeError:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-        return self._loop
-    
-    def _run_async(self, coro):
-        """Run async function synchronously"""
-        loop = self._get_or_create_loop()
-        return loop.run_until_complete(coro)
-    
-    def connect(self):
-        """Connect to MCP server (sync)"""
-        if not self._manager:
-            self._manager = MCPManager(self.access_token)
-        self._run_async(self._manager.connect())
-    
-    def disconnect(self):
-        """Disconnect from MCP server (sync)"""
-        if self._manager:
-            self._run_async(self._manager.disconnect())
-    
-    def get_tools_for_openai(self) -> List[Dict]:
-        """Get OpenAI-formatted tools (sync)"""
-        if not self._manager:
-            self.connect()
-        return self._run_async(self._manager.get_tools_for_openai())
-    
-    def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-        """Execute tool (sync)"""
-        if not self._manager:
-            self.connect()
-        return self._run_async(self._manager.execute_tool(tool_name, arguments))
-    
-    def execute_tool_calls(self, tool_calls: List) -> List[Dict]:
-        """Execute multiple tool calls (sync)"""
-        if not self._manager:
-            self.connect()
-        return self._run_async(self._manager.execute_tool_calls(tool_calls))
-    
-    def update_access_token(self, access_token: str):
-        """Update access token (sync)"""
-        self.access_token = access_token
-        if self._manager:
-            self._manager.update_access_token(access_token)
-    
-    def __enter__(self):
-        """Context manager entry"""
-        self.connect()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
-        self.disconnect()

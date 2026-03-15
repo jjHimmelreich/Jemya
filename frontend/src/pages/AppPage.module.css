@@ -1,0 +1,82 @@
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: #121212;
+  color: #e0e0e0;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* On mobile the sidebar is position:fixed (out of flow).
+   Offset main by the collapsed sidebar strip width so nothing is hidden under it. */
+@media (max-width: 640px) {
+  .main {
+    margin-left: 40px;
+  }
+}
+
+.playlistHeader {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: rgba(28, 28, 28, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+
+.chatWrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: 82px;
+}
+
+.playlistThumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.playlistName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  text-decoration: none;
+}
+.playlistName:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.playlistMeta {
+  font-size: 0.78rem;
+  color: #888;
+  margin-top: 2px;
+}
+
+.noSelection {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 1rem;
+}

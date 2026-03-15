@@ -1,0 +1,509 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  min-width: 280px;
+  background: #0a0a0a;
+  border-right: 1px solid #222;
+  height: 100vh;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 48px;
+  min-width: 48px;
+}
+
+/* Mobile: sidebar slides in as a fixed overlay */
+@media (max-width: 640px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 200;
+    height: 100dvh;
+  }
+
+  /* Collapsed on mobile: shrink to a 40px strip showing only the toggle */
+  .sidebar.collapsed {
+    width: 40px;
+    min-width: 40px;
+    border-right: 1px solid #222;
+  }
+}
+
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 199;
+  }
+}
+
+.header {
+  padding: 14px 12px 12px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed .header {
+  padding: 12px 0;
+  border-bottom: 1px solid #222;
+}
+
+.logoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+/* When collapsed, only the toggle button is rendered — centre it */
+.sidebar.collapsed .logoRow {
+  justify-content: center;
+  margin-bottom: 0;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #3B7EA5;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.logoIcon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px rgba(71, 188, 254, 0.4));
+}
+
+.toggleBtn {
+  background: none;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #666;
+  font-size: 1.1rem;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.toggleBtn:hover {
+  border-color: #3B7EA5;
+  color: #3B7EA5;
+}
+
+/* On mobile, make the toggle button a bit larger for touch */
+@media (max-width: 640px) {
+  .toggleBtn {
+    width: 32px;
+    height: 32px;
+    font-size: 1.3rem;
+  }
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+
+.logoutBtn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  text-decoration: underline;
+}
+.logoutBtn:hover {
+  color: #ff6b6b;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+
+.searchInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.searchInput {
+  width: 100%;
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  padding: 7px 28px 7px 10px;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.searchInput:focus {
+  border-color: #3B7EA5;
+}
+.searchInput::placeholder {
+  color: #555;
+}
+
+.clearBtn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.clearBtn:hover { color: #aaa; }
+
+/* Sort dropdown */
+.sortDropdownWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.sortTrigger {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  font-size: 0.78rem;
+  padding: 5px 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.sortTrigger:hover {
+  color: #ccc;
+  border-color: #555;
+}
+.sortTriggerActive {
+  color: #e0e0e0;
+  border-color: #e0e0e0;
+}
+.sortTriggerChevron {
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+.sortMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  min-width: 140px;
+  z-index: 200;
+  overflow: hidden;
+}
+.sortOption {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #b0b0b0;
+  font-size: 0.83rem;
+  font-family: inherit;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.sortOption:hover {
+  background: rgba(255,255,255,0.07);
+  color: #e0e0e0;
+}
+.sortOptionActive {
+  color: #fff;
+  font-weight: 600;
+}
+
+.listContainer {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 16px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: #555;
+}
+.groupHeader:hover {
+  color: #888;
+}
+
+.groupChevron {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.groupTitle {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 700;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  font-size: 0.68rem;
+  background: #222;
+  border-radius: 8px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.noResults {
+  padding: 16px;
+  color: #555;
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.loading {
+  color: #666;
+  font-size: 0.85rem;
+  padding: 12px 16px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.item:hover {
+  background: #1a1a1a;
+}
+.item.active {
+  background: #3B7EA5;
+  color: #fff;
+}
+.item.active .count {
+  color: rgba(255,255,255,0.7);
+}
+
+.thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.thumbPlaceholder {
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+  background: #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.thumbPlaceholderIcon {
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+  filter: invert(1);
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.name {
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e0e0e0;
+}
+.item.active .name {
+  color: #fff;
+}
+
+.count {
+  font-size: 0.75rem;
+  color: #777;
+}
+
+/* ── Create playlist ─────────────────────────────────────────────────────── */
+.createSection {
+  padding: 8px 12px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+
+.createRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.createBtn {
+  flex: 1;
+  background: none;
+  border: 1px dashed #3B7EA5;
+  color: #3B7EA5;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.createBtn:hover {
+  background: rgba(59, 126, 165, 0.1);
+}
+
+.refreshBtn {
+  background: none;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #aaa;
+  font-size: 0.9rem;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.refreshBtn:hover {
+  border-color: #3B7EA5;
+  color: #3B7EA5;
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.createInput {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.83rem;
+  padding: 6px 9px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.createInput:focus {
+  outline: none;
+  border-color: #3B7EA5;
+}
+
+.createCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #aaa;
+  cursor: pointer;
+}
+
+.createError {
+  font-size: 0.78rem;
+  color: #ff6b6b;
+}
+
+.createActions {
+  display: flex;
+  gap: 6px;
+}
+
+.createSubmit {
+  flex: 1;
+  background: #3B7EA5;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px;
+  cursor: pointer;
+}
+.createSubmit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.createSubmit:not(:disabled):hover {
+  background: #3677A1;
+}
+
+.createCancel {
+  flex: 1;
+  background: none;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 0.82rem;
+  padding: 6px;
+  cursor: pointer;
+}
+.createCancel:hover {
+  border-color: #666;
+  color: #ccc;
+}

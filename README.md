@@ -25,8 +25,9 @@ pip install -r requirements.txt
 
 3. Run the application:
 ```bash
-streamlit run app.py --server.port 5555
+./run_dev.sh
 ```
+This starts both the FastAPI backend (port 8000) and React frontend (port 5555) concurrently.
 
 ### Production Deployment
 The application automatically uses environment variables in production:
@@ -38,40 +39,42 @@ The application automatically uses environment variables in production:
 
 ## 📁 Project Structure
 ```
-├── app.py                          # Main Streamlit application
+├── backend/                        # FastAPI backend
+│   ├── main.py                     # App entry point, CORS, static SPA serving
+│   ├── routers/                    # Route handlers (auth, playlists, ai, mcp)
+│   └── services/                   # Business logic (spotify, ai)
+│
+├── frontend/                       # React + Vite + TypeScript UI
+│   ├── src/
+│   │   ├── components/             # Sidebar, chat, playlist table, etc.
+│   │   ├── hooks/                  # useChat, usePlaylists, useAuth
+│   │   └── api/                    # Typed API client
+│   └── dist/                       # Built output (served by FastAPI in prod)
+│
 ├── ai_manager.py                   # OpenAI integration for playlist generation
-├── spotify_manager.py              # Spotify API wrapper and authentication
-├── configuration_manager.py        # Smart configuration system
-├── conversation_manager.py         # Conversation state management
+├── mcp_manager.py                  # MCP client (FastAPI ↔ Spotify MCP server)
+├── spotify_mcp_server.py           # Spotify MCP server
+├── configuration_manager.py        # Config: conf.py (dev) / env vars (prod)
+├── conversation_manager.py         # Conversation persistence
 ├── conf.py                         # Local development config (create from template)
-├── conf.py.template               # Configuration template
-├── requirements.txt               # Python dependencies
-├── Dockerfile                     # Container configuration
-├── run_streamlit.sh              # Application startup script
+├── conf.py.template                # Configuration template
+├── requirements.txt                # Python dependencies
+├── Dockerfile                      # Multi-stage build (Node → Python)
+├── run_dev.sh                      # Start backend + frontend concurrently
 │
-├── .github/workflows/            # CI/CD pipelines
-│   ├── ci.yml                   # Build, test, security scan, ECR push
-│   ├── deploy.yml               # Deployment workflow (manual + auto)
-│   └── rotate-aws-keys.yml      # Automated security key rotation
+├── .github/workflows/              # CI/CD pipelines
+│   ├── ci.yml                      # Build, test, security scan, ECR push
+│   ├── deploy.yml                  # Blue-green deployment (manual + auto)
+│   └── rotate-aws-keys.yml         # Automated security key rotation
 │
-├── aws/                         # AWS infrastructure
-│   ├── setup-infrastructure.sh  # Complete AWS setup
-│   ├── cleanup-infrastructure.sh # Clean infrastructure teardown
-│   ├── check-policies.sh        # Policy status verification
-│   ├── update-policies.sh       # Apply policy updates
-│   ├── *.json                   # Secure IAM policies (least privilege)
-│   └── nginx-jemya.conf         # Production nginx HTTPS config
+├── aws/                            # AWS infrastructure
+│   ├── aws_manager.py              # Deployment orchestration
+│   ├── nginx-jemya.conf            # Production nginx HTTPS config
+│   └── *.json                      # Secure IAM policies (least privilege)
 │
-├── tools/                       # Development and debugging utilities
-│   ├── debug_search.py          # Spotify search debugging
-│   ├── track_debugger.py        # Track analysis tools
-│   ├── security-check.sh        # Pre-commit security scanning
-│   └── test_*.py               # Various testing utilities
-│
-├── conversations/               # User conversation history
-├── static/                     # Static assets (images, etc.)
-├── ZZZ_archive_backend/        # Legacy backend code (archived)
-└── SECURITY.md                 # Security setup and guidelines
+├── tools/                          # Development and debugging utilities
+├── conversations/                  # User conversation history
+└── SECURITY.md                     # Security setup and guidelines
 ```
 
 ## 🛡️ CI/CD Pipeline

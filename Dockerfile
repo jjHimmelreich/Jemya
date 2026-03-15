@@ -1,36 +1,46 @@
-# Use official Python runtime as parent image
+# ── Stage 1: Build React frontend ───────────────────────────────────────────
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci --silent
+
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: Python / FastAPI runtime ────────────────────────────────────────
 FROM python:3.11-slim
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies
+# System dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
 # Install Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+# Copy application source
 COPY . .
+
+# Copy compiled React app from builder stage
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # Create necessary directories
 RUN mkdir -p /app/conversations
 
-# Expose port 8501 (Streamlit default)
-EXPOSE 8501
+# Expose FastAPI port
+EXPOSE 8000
 
 # Health check
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+HEALTHCHECK CMD curl --fail http://localhost:8000/health
 
-# Run Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
+# Run FastAPI via uvicorn
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

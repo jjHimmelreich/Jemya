@@ -39,8 +39,10 @@ class AIManager:
         self,
         user_message: str,
         conversation_history: List[Dict[str, Any]],
+        access_token: Optional[str] = None,
         max_iterations: int = 5,
-        max_context_tokens: int = 100000  # Leave headroom for tools and response
+        max_context_tokens: int = 100000,
+        exclude_write_tools: bool = True,
     ) -> Dict[str, Any]:
         """
         Generate response using MCP function calling with smart context management.
@@ -50,6 +52,10 @@ class AIManager:
             conversation_history: Previous conversation messages
             max_iterations: Maximum number of function call iterations
             max_context_tokens: Maximum tokens to keep in context (default: 100k)
+            exclude_write_tools: If True (default), strip add_tracks / remove_tracks /
+                replace_playlist from the tool list so the AI proposes changes as text
+                instead of writing to Spotify directly.  The caller (Preview→Apply flow)
+                is then responsible for actually writing.
             
         Returns:
             Dict with 'response', 'tool_calls', and 'tool_results'
@@ -58,7 +64,14 @@ class AIManager:
             raise ValueError("MCP manager not configured")
         
         # Get MCP tools for OpenAI
-        tools = await self.mcp_manager.get_tools_for_openai()
+        all_tools = await self.mcp_manager.get_tools_for_openai()
+
+        _WRITE_TOOLS = {'add_tracks', 'remove_tracks', 'replace_playlist'}
+        tools = (
+            [t for t in all_tools if t['function']['name'] not in _WRITE_TOOLS]
+            if exclude_write_tools
+            else all_tools
+        )
         
         # Smart context management: Remove old tool results (they're ephemeral)
         # BUT keep ALL conversation messages for full context
@@ -104,7 +117,8 @@ class AIManager:
                 model="gpt-4o-mini",
                 messages=messages,
                 tools=tools,
-                tool_choice="auto"
+                tool_choice="auto",
+                max_tokens=8192,
             )
             
             assistant_message = response.choices[0].message
@@ -120,7 +134,9 @@ class AIManager:
                 }
             
             # Execute the tool calls
-            tool_results = await self.mcp_manager.execute_tool_calls(assistant_message.tool_calls)
+            tool_results = await self.mcp_manager.execute_tool_calls(
+                assistant_message.tool_calls, access_token=access_token
+            )
             
             # Track all tool calls and results
             all_tool_calls.extend(assistant_message.tool_calls)
@@ -298,13 +314,14 @@ class AIManager:
             "🔧 AVAILABLE TOOLS: FUNCTION CALLING\n"
             "═══════════════════════════════════════════════════════════════════════════════\n\n"
             "You have access to the following Spotify operations via function calls:\n"
+            "• GET CURRENT USER: get_current_user() - Get the current user's Spotify ID and display name. Use this when user says 'my playlists' or 'playlists I created'.\n"
             "• READ PLAYLISTS: read_playlist(playlist_id) - Get all tracks from any playlist\n"
-            "• LIST PLAYLISTS: list_playlists() - See ALL user playlists (automatic paging)\n"
+            "• LIST ALL PLAYLISTS: list_playlists() - See ALL user playlists (automatic paging, 184+ supported). Returns owner_id and owner_name for every playlist.\n"
+            "• LIST FILTERED PLAYLISTS: list_playlists(owner_id=<id>) - Server-side filter by owner ID. Returns only playlists from that owner.\n"
             "• SEARCH TRACKS: search_tracks(query) - Find tracks on Spotify\n"
-            "• CREATE PLAYLISTS: create_playlist(name, description) - Create new playlists\n"
-            "• ADD TRACKS: add_tracks(playlist_id, track_uris, position) - Add tracks at specific positions\n"
-            "• REMOVE TRACKS: remove_tracks(playlist_id, track_uris) - Remove specific tracks\n"
-            "• REPLACE PLAYLIST: replace_playlist(playlist_id, track_uris) - Replace all tracks with new ones\n\n"
+            "• CREATE PLAYLISTS: create_playlist(name, description) - Create new playlists\n\n"
+            "NOTE: add_tracks, remove_tracks, replace_playlist are NOT available during chat.\n"
+            "Instead, propose changes as a formatted tracklist \u2014 the user will review and apply them.\n\n"
             "═══════════════════════════════════════════════════════════════════════════════\n"
             "🎯 USE CASES: SINGLE-PLAYLIST & CROSS-PLAYLIST OPERATIONS\n"
             "═══════════════════════════════════════════════════════════════════════════════\n\n"
@@ -315,8 +332,12 @@ class AIManager:
             "3. Identify insertion points: gaps, transitions, contrasts\n"
             "4. Use search_tracks() to find complementary tracks\n"
             "5. Build the complete final playlist with optimal ordering\n"
-            "6. Use replace_playlist() to update with the enriched version\n"
-            "7. Explain your musical reasoning and flow improvements\n\n"
+            "6. Output the COMPLETE proposed tracklist — every track in final order — as lines of:\n"
+            "   Track Name - Artist Name\n"
+            "   (include ALL existing tracks + new ones in their final positions)\n"
+            "7. DO NOT call add_tracks, remove_tracks, or replace_playlist — the user will\n"
+            "   review your proposed tracklist and apply it with the Preview & Save button\n"
+            "8. Explain your musical reasoning and flow improvements\n\n"
             "CROSS-PLAYLIST OPERATIONS:\n"
             "• COMBINE: Read multiple playlists → create new one with all tracks\n"
             "• MERGE & DEDUPLICATE: Combine playlists while removing duplicate tracks (same URI)\n"
@@ -326,12 +347,13 @@ class AIManager:
             "📋 WORKFLOW & CRITICAL RULES\n"
             "═══════════════════════════════════════════════════════════════════════════════\n\n"
             "Standard Workflow:\n"
-            "1. Use list_playlists() to see available playlists\n"
-            "2. Filter results in your logic (by name, year, description, etc.)\n"
-            "3. Use read_playlist(playlist_id) with EXACT playlist IDs from step 1\n"
-            "4. Analyze tracks and plan operations (enrichment or cross-playlist)\n"
-            "5. Execute operations (create, add, remove, replace)\n"
-            "6. Explain what you did and why\n\n"
+            "1. 'My playlists' / 'playlists I created': get_current_user() → list_playlists(owner_id=<your_id>)\n"
+            "2. 'Playlists by Jason Gold' / any specific person: list_playlists() → find owner_id for that name → list_playlists(owner_id=<their_id>)\n"
+            "3. All playlists / cross-user operations: list_playlists() — returns everyone's playlists with owner info\n"
+            "4. Use read_playlist(playlist_id) with EXACT playlist IDs from above calls\n"
+            "5. Analyze tracks and plan enrichment or cross-playlist operations\n"
+            "6. For single-playlist enrichment: use search_tracks() then output the complete proposed tracklist as 'Track Name - Artist' lines. The user will click Preview & Save to apply.\n"
+            "7. Explain what you propose and why\n\n"
             "CRITICAL RULES:\n"
             "• playlist_id parameters must be EXACT Spotify IDs (like '37i9dQZF1DX...'), NOT names or patterns\n"
             "• NEVER use wildcards like '2025*' or 'workout*' in playlist_id\n"
@@ -339,14 +361,17 @@ class AIManager:
             "• Always explain your plan before executing write operations\n"
             "• For write operations, clearly state what will change\n"
             "• Track URIs from read_playlist can be used directly in add/remove/replace operations\n"
+            "• BEFORE calling add_tracks, always call read_playlist(playlist_id) first to check which tracks are already present — never add tracks that are already in the playlist\n"
+            "• If the conversation already shows you added tracks to a playlist, DO NOT add them again without first calling read_playlist to verify current state\n"
             "• When enriching single playlists, prioritize flow and transitions\n"
-            "• When combining playlists, preserve track order unless user requests reordering\n\n"
+            "• When combining playlists, preserve track order unless user requests reordering\n"
+            "• LISTING RULE: When reporting playlists or tracks, ALWAYS state the exact total count from the tool result first. Then list ALL items — never truncate, summarize, or say 'and X more'. If the list is long, use a compact format (one per line) but include every single item.\n\n"
             "COMBINE PLAYLISTS EXAMPLE:\n"
             "User: 'Combine all my 2025 playlists'\n"
             "→ list_playlists() → filter by '2025' → read_playlist() × N → create_playlist('Combined 2025') → add_tracks()\n\n"
             "ENRICH PLAYLIST EXAMPLE:\n"
             "User: 'Make my workout playlist flow better'\n"
-            "→ read_playlist() → analyze flow → search_tracks() for bridging tracks → replace_playlist() with enriched version"
+            "→ read_playlist() → analyze flow → search_tracks() for bridging tracks → output complete proposed tracklist as 'Track - Artist' lines → user clicks Preview & Save"
         )
         
         if has_spotify_connection:

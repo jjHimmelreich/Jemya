@@ -1177,9 +1177,10 @@ echo "User data script completed" > /var/log/user-data.log
             # Blue-Green Deployment: Find available port for new container
             self._print_info("Implementing blue-green deployment...")
             
-            # Define our two ports for blue-green deployment
-            blue_port = "8501"
-            green_port = "8502"
+            # Define our two host-side ports for blue-green slot alternation
+            # (container always exposes 8000 internally)
+            blue_port = "8000"
+            green_port = "8001"
             
             # Check which ports are currently in use
             port_check_cmd = f"""
@@ -1212,9 +1213,9 @@ echo "User data script completed" > /var/log/user-data.log
                 new_container = "jemya-green"
                 old_container = "jemya-blue"
             else:
-                self._print_error("Both ports 8501 and 8502 are in use - cannot perform blue-green deployment")
+                self._print_error("Both ports 8000 and 8001 are in use - cannot perform blue-green deployment")
                 self._print_info("Falling back to stop-and-start deployment...")
-                # Force cleanup and use 8501
+                # Force cleanup and use 8000
                 cleanup_cmd = "sudo docker stop jemya-blue jemya-green jemya jemya-app 2>/dev/null || true; sudo docker rm -f jemya-blue jemya-green jemya jemya-app 2>/dev/null || true"
                 self._run_ssm_command(instance_id, cleanup_cmd)
                 new_port = blue_port
@@ -1260,7 +1261,7 @@ echo "User data script completed" > /var/log/user-data.log
                     self._print_warning(f"⚠️ Environment variable {env_var} not found - application may fail to start")
             
             env_args = " ".join(env_vars)
-            run_cmd = f"sudo docker run -d --name {new_container} -p 127.0.0.1:{new_port}:8501 {env_args} --restart unless-stopped {ecr_repo}:{image_tag}"
+            run_cmd = f"sudo docker run -d --name {new_container} -p 127.0.0.1:{new_port}:8000 {env_args} --restart unless-stopped {ecr_repo}:{image_tag}"
             
             if not self._run_ssm_command(instance_id, run_cmd):
                 self._print_error("Failed to start new container")
