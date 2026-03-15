@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { PreviewData, ApplyResult } from '../types';
 import styles from './PreviewModal.module.css';
 
@@ -46,8 +45,8 @@ export function PreviewModal({ preview, applying, applyResult, onApply, onClose 
             <div className={styles.trackList}>
               {preview.tracks_to_add.map((t, i) => (
                 <div key={i} className={styles.track}>
-                  <span className={styles.trackName}>{t.found_name ?? t.name}</span>
-                  <span className={styles.trackArtist}>{t.found_artist ?? t.artists}</span>
+                  <span className={styles.trackName}>{t.found_name}</span>
+                  <span className={styles.trackArtist}>{t.found_artist}</span>
                 </div>
               ))}
             </div>

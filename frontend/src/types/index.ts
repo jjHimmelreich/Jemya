@@ -39,6 +39,17 @@ export interface TrackItem {
   uri?: string;
 }
 
+export interface PreviewTrack {
+  uri: string;
+  found_name?: string;
+  found_artist?: string;
+  found_album?: string;
+  duration_ms?: number;
+  spotify_url?: string;
+  position_instruction?: string;
+  order_index?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -47,7 +58,7 @@ export interface ChatMessage {
 }
 
 export interface PreviewData {
-  tracks_to_add: TrackItem[];
+  tracks_to_add: PreviewTrack[];
   tracks_not_found: string[];
   total_found: number;
   total_not_found: number;
