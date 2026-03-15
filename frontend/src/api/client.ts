@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { TokenInfo, PlaylistItem, TrackItem, PreviewData, ApplyResult, UserInfo } from '../types';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
 const http = axios.create({ baseURL: BASE_URL });
 

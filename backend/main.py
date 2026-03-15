@@ -77,5 +77,8 @@ if _DIST.is_dir():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa_fallback(full_path: str) -> FileResponse:
-        """Return index.html for all non-API routes (React SPA routing)."""
+        """Serve static files from dist, falling back to index.html for SPA routes."""
+        requested = _DIST / full_path
+        if requested.is_file():
+            return FileResponse(requested)
         return FileResponse(_DIST / "index.html")
