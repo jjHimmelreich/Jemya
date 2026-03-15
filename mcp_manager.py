@@ -5,6 +5,7 @@ Handles MCP client connection and converts tools for OpenAI function calling
 import asyncio
 import json
 import logging
+import os
 import subprocess
 from typing import Any, Dict, List, Optional
 
@@ -29,7 +30,7 @@ class MCPManager:
         self._server_params = StdioServerParameters(
             command="python3.11",
             args=["spotify_mcp_server.py"],
-            env=None
+            env=os.environ.copy()
         )
     
     async def __aenter__(self):
