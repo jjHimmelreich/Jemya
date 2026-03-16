@@ -51,7 +51,7 @@ export function ChatWindow({
       <div className={styles.messages}>
         {messages.length === 0 && !isLoading && (
           <div className={styles.empty}>
-            Ask Jemya to enrich, reorder, or transform your playlist ✨
+            Ask Jam-ya to enrich, reorder, or transform your playlist ✨
           </div>
         )}
         {messages.map((m) => (
@@ -84,7 +84,7 @@ export function ChatWindow({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
-          placeholder={disabled ? 'Select a playlist first…' : 'Message Jemya…'}
+          placeholder={disabled ? 'Select a playlist first…' : 'Message Jam-ya…'}
           rows={2}
           disabled={isLoading || disabled}
         />

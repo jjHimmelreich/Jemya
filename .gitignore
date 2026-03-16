@@ -55,6 +55,7 @@ test_login_ui.py
 
 # Generated screenshots and layout images (DO NOT COMMIT)
 *.png
+!frontend/public/apple-touch-icon.png
 screenshots/*
 layout_*.png
 state_*.png

@@ -1,4 +1,4 @@
-// Shared TypeScript types for Jemya frontend
+// Shared TypeScript types for Jam-ya frontend
 
 export interface TokenInfo {
   access_token: string;

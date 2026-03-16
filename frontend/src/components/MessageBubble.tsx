@@ -11,7 +11,7 @@ export function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   return (
     <div className={`${styles.bubble} ${isUser ? styles.user : styles.assistant}`}>
-      <div className={styles.label}>{isUser ? 'You' : 'Jemya'}</div>
+      <div className={styles.label}>{isUser ? 'You' : 'Jam-ya'}</div>
       <div className={styles.content}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}

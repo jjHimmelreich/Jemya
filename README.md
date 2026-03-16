@@ -1,4 +1,4 @@
-# Jemya
+# Jam-ya
 Spotify Playlists Generator and Analyzer
 
 ![Security](https://img.shields.io/badge/Security-Hardened_IAM-green?style=flat-square)

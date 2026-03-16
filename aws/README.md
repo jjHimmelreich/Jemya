@@ -78,6 +78,37 @@ python3 aws_manager.py ssh
 python3 aws_manager.py policies
 ```
 
+## 🌍 Custom Domain (jam-ya.com via GoDaddy)
+
+### Step 1 — Run the domain setup
+```bash
+python3 aws_manager.py domain
+```
+This will:
+1. Allocate an **Elastic IP** and attach it to the EC2 instance (static public IP)
+2. Create a **Route 53 Hosted Zone** for `jam-ya.com`
+3. Add **A records** for `jam-ya.com` and `www.jam-ya.com`
+4. Update **nginx** on the server to use the real domain name
+5. Print the **4 Route 53 nameservers** you must set in GoDaddy
+
+### Step 2 — Update GoDaddy nameservers
+1. Log in to [GoDaddy](https://www.godaddy.com) → **My Products** → **Domains** → `jam-ya.com`
+2. Go to **DNS** → **Nameservers** → **Change** → **Enter my own nameservers (advanced)**
+3. Delete existing nameservers and add the 4 NS values printed in Step 1
+4. Save and wait for DNS propagation (usually 5–30 minutes)
+
+### Step 3 — Install Let's Encrypt SSL (after DNS propagates)
+```bash
+python3 aws_manager.py domain --action ssl
+```
+This installs `certbot` on the EC2 instance and replaces the self-signed certificate with a
+trusted Let's Encrypt certificate. nginx is automatically reconfigured.
+
+### Check domain status
+```bash
+python3 aws_manager.py domain --action status
+```
+
 ## 🔒 Security Notes
 
 - All deployment uses Session Manager (no SSH required)

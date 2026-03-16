@@ -151,7 +151,7 @@ export function Sidebar({
             {!collapsed && (
               <div className={styles.logo}>
                 <img src="/music-svgrepo-com.svg" alt="" className={styles.logoIcon} />
-                Jemya
+                Jam-ya
               </div>
             )}
             <button
