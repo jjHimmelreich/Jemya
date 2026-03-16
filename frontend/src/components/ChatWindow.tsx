@@ -62,15 +62,6 @@ export function ChatWindow({
             Ask Jam-ya to enrich, reorder, or transform your playlist ✨
           </div>
         )}
-        {!messages.some((m) => m.role === 'assistant') && !isLoading && !disabled && (
-          <div className={styles.starters}>
-            {STARTER_PROMPTS.map((p) => (
-              <button key={p} className={styles.starterChip} onClick={() => onSend(p)}>
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
@@ -92,6 +83,16 @@ export function ChatWindow({
               {previewLoading ? 'Searching…' : 'Preview & Save'}
             </button>
           )}
+        </div>
+      )}
+
+      {!messages.some((m) => m.role === 'assistant') && !isLoading && !disabled && (
+        <div className={styles.starters}>
+          {STARTER_PROMPTS.map((p) => (
+            <button key={p} className={styles.starterChip} onClick={() => onSend(p)}>
+              {p}
+            </button>
+          ))}
         </div>
       )}
 
