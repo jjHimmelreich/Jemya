@@ -249,8 +249,35 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
             </div>
           </>
         ) : (
-          <div className={styles.noSelection}>
-            <span>← Select a playlist to get started</span>
+          <div className={styles.welcome}>
+            <div className={styles.welcomeCard}>
+              <img src="/music-svgrepo-com.svg" className={styles.welcomeIcon} alt="" />
+              <h1 className={styles.welcomeTitle}>Welcome to Jam-ya</h1>
+              <p className={styles.welcomeSubtitle}>Your AI-powered Spotify playlist manager</p>
+              <ol className={styles.steps}>
+                <li className={styles.step}>
+                  <span className={styles.stepNum}>1</span>
+                  <div className={styles.stepBody}>
+                    <strong>Pick a playlist</strong>
+                    <span>Choose one from the sidebar on the left</span>
+                  </div>
+                </li>
+                <li className={styles.step}>
+                  <span className={styles.stepNum}>2</span>
+                  <div className={styles.stepBody}>
+                    <strong>Tell Jam-ya what to do</strong>
+                    <span>e.g. "Add 10 similar songs" or "Sort by energy"</span>
+                  </div>
+                </li>
+                <li className={styles.step}>
+                  <span className={styles.stepNum}>3</span>
+                  <div className={styles.stepBody}>
+                    <strong>Preview &amp; Save</strong>
+                    <span>Review every change before it's applied to Spotify</span>
+                  </div>
+                </li>
+              </ol>
+            </div>
           </div>
         )}
       </main>

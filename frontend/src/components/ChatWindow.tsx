@@ -3,6 +3,14 @@ import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from '../types';
 import styles from './ChatWindow.module.css';
 
+const STARTER_PROMPTS = [
+  'Tell me about this playlist',
+  'Add 10 similar songs to fill it out',
+  'Remove any duplicate tracks',
+  'Sort by energy — mellow start, build up',
+  'Find gaps and suggest tracks to bridge them',
+];
+
 interface Props {
   messages: ChatMessage[];
   isLoading: boolean;
@@ -52,6 +60,15 @@ export function ChatWindow({
         {messages.length === 0 && !isLoading && (
           <div className={styles.empty}>
             Ask Jam-ya to enrich, reorder, or transform your playlist ✨
+          </div>
+        )}
+        {messages.length === 0 && !isLoading && !disabled && (
+          <div className={styles.starters}>
+            {STARTER_PROMPTS.map((p) => (
+              <button key={p} className={styles.starterChip} onClick={() => onSend(p)}>
+                {p}
+              </button>
+            ))}
           </div>
         )}
         {messages.map((m) => (
