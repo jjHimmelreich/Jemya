@@ -62,7 +62,7 @@ export function ChatWindow({
             Ask Jam-ya to enrich, reorder, or transform your playlist ✨
           </div>
         )}
-        {messages.length === 0 && !isLoading && !disabled && (
+        {!messages.some((m) => m.role === 'assistant') && !isLoading && !disabled && (
           <div className={styles.starters}>
             {STARTER_PROMPTS.map((p) => (
               <button key={p} className={styles.starterChip} onClick={() => onSend(p)}>
