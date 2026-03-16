@@ -80,7 +80,7 @@ export function ChatWindow({
         <div className={styles.actionBar}>
           {onPreview && (
             <button className={styles.previewBtn} onClick={onPreview} disabled={previewLoading}>
-              {previewLoading ? 'Searching…' : 'Preview & Save'}
+              {previewLoading ? 'Searching…' : 'Preview & Save Changes'}
             </button>
           )}
         </div>

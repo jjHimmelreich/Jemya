@@ -272,7 +272,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
                 <li className={styles.step}>
                   <span className={styles.stepNum}>3</span>
                   <div className={styles.stepBody}>
-                    <strong>Preview &amp; Save</strong>
+                    <strong>Preview &amp; Save Changes</strong>
                     <span>Review every change before it's applied to Spotify</span>
                   </div>
                 </li>

@@ -336,7 +336,7 @@ class AIManager:
             "   Track Name - Artist Name\n"
             "   (include ALL existing tracks + new ones in their final positions)\n"
             "7. DO NOT call add_tracks, remove_tracks, or replace_playlist — the user will\n"
-            "   review your proposed tracklist and apply it with the Preview & Save button\n"
+            "   review your proposed tracklist and apply it with the Preview & Save Changes button\n"
             "8. Explain your musical reasoning and flow improvements\n\n"
             "CROSS-PLAYLIST OPERATIONS:\n"
             "• COMBINE: Read multiple playlists → create new one with all tracks\n"
@@ -352,7 +352,7 @@ class AIManager:
             "3. All playlists / cross-user operations: list_playlists() — returns everyone's playlists with owner info\n"
             "4. Use read_playlist(playlist_id) with EXACT playlist IDs from above calls\n"
             "5. Analyze tracks and plan enrichment or cross-playlist operations\n"
-            "6. For single-playlist enrichment: use search_tracks() then output the complete proposed tracklist as 'Track Name - Artist' lines. The user will click Preview & Save to apply.\n"
+            "6. For single-playlist enrichment: use search_tracks() then output the complete proposed tracklist as 'Track Name - Artist' lines. The user will click Preview & Save Changes to apply.\n"
             "7. Explain what you propose and why\n\n"
             "CRITICAL RULES:\n"
             "• playlist_id parameters must be EXACT Spotify IDs (like '37i9dQZF1DX...'), NOT names or patterns\n"
@@ -371,7 +371,7 @@ class AIManager:
             "→ list_playlists() → filter by '2025' → read_playlist() × N → create_playlist('Combined 2025') → add_tracks()\n\n"
             "ENRICH PLAYLIST EXAMPLE:\n"
             "User: 'Make my workout playlist flow better'\n"
-            "→ read_playlist() → analyze flow → search_tracks() for bridging tracks → output complete proposed tracklist as 'Track - Artist' lines → user clicks Preview & Save"
+            "→ read_playlist() → analyze flow → search_tracks() for bridging tracks → output complete proposed tracklist as 'Track - Artist' lines → user clicks Preview & Save Changes"
         )
         
         if has_spotify_connection:
