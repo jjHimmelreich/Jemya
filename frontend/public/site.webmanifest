@@ -1,0 +1,22 @@
+{
+  "name": "Jam-ya",
+  "short_name": "Jam-ya",
+  "description": "AI-powered Spotify playlist manager",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/music-svgrepo-com.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

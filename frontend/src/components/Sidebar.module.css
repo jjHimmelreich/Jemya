@@ -111,11 +111,11 @@
   color: #3B7EA5;
 }
 
-/* On mobile, make the toggle button a bit larger for touch */
+/* On mobile, ensure the toggle button meets the 44px touch target minimum */
 @media (max-width: 640px) {
   .toggleBtn {
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     font-size: 1.3rem;
   }
 }

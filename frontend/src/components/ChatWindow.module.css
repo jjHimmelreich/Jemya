@@ -137,3 +137,32 @@
 .sendBtn:hover:not(:disabled) {
   opacity: 0.85;
 }
+
+/* Accessibility: respect user motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Mobile: fix iOS Safari auto-zoom (requires font-size >= 16px on inputs)
+   and ensure touch targets meet the 44px HIG/WCAG minimum */
+@media (max-width: 640px) {
+  .input {
+    font-size: 1rem;
+  }
+
+  .sendBtn {
+    min-height: 44px;
+  }
+
+  .previewBtn,
+  .applyBtn {
+    min-height: 44px;
+  }
+
+  .actionBar {
+    flex-wrap: wrap;
+  }
+}
