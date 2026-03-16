@@ -3,6 +3,14 @@ import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from '../types';
 import styles from './ChatWindow.module.css';
 
+const STARTER_PROMPTS = [
+  'Tell me about this playlist',
+  'Add 10 similar songs to fill it out',
+  'Remove any duplicate tracks',
+  'Sort by energy — mellow start, build up',
+  'Find gaps and suggest tracks to bridge them',
+];
+
 interface Props {
   messages: ChatMessage[];
   isLoading: boolean;
@@ -72,9 +80,19 @@ export function ChatWindow({
         <div className={styles.actionBar}>
           {onPreview && (
             <button className={styles.previewBtn} onClick={onPreview} disabled={previewLoading}>
-              {previewLoading ? 'Searching…' : 'Preview & Save'}
+              {previewLoading ? 'Searching…' : 'Preview & Save Changes'}
             </button>
           )}
+        </div>
+      )}
+
+      {!messages.some((m) => m.role === 'assistant') && !isLoading && !disabled && (
+        <div className={styles.starters}>
+          {STARTER_PROMPTS.map((p) => (
+            <button key={p} className={styles.starterChip} onClick={() => onSend(p)}>
+              {p}
+            </button>
+          ))}
         </div>
       )}
 

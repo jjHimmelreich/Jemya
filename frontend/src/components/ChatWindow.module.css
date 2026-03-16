@@ -138,7 +138,33 @@
   opacity: 0.85;
 }
 
-/* Accessibility: respect user motion preference */
+/* Starter prompt chips — shown after tracks load but before first AI reply */
+.starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  padding: 10px 16px 10px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.starterChip {
+  padding: 7px 14px;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 20px;
+  color: #b0b0b0;
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  text-align: left;
+}
+
+.starterChip:hover {
+  border-color: #3B7EA5;
+  color: #e0e0e0;
+  background: #222;
+}
 @media (prefers-reduced-motion: reduce) {
   .dot {
     animation: none;

@@ -49,7 +49,9 @@ export function Sidebar({
   onCreatePlaylist,
   onRefresh,
 }: Props) {
-  const [collapsed, setCollapsed] = useState(() => window.innerWidth <= 640);
+  // Always start expanded so new users immediately see their playlists.
+  // On mobile we auto-collapse once they select a playlist (see renderItem).
+  const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'recent' | 'alpha'>('recent');
   const [sortOpen, setSortOpen] = useState(false);
@@ -120,7 +122,12 @@ export function Sidebar({
     <li
       key={p.id}
       className={`${styles.item} ${p.id === selectedId ? styles.active : ''}`}
-      onClick={() => onSelect(p)}
+      onClick={() => {
+        onSelect(p);
+        // On mobile the sidebar overlays the screen — collapse it after selection
+        // so the user can see the chat without an extra tap.
+        if (window.innerWidth <= 640) setCollapsed(true);
+      }}
     >
       {p.images?.[0]?.url ? (
         <img className={styles.thumb} src={p.images[0].url} alt="" />

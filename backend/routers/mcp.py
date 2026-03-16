@@ -67,7 +67,7 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
                 f"analyze the tracks, search for additions with search_tracks(), then output the COMPLETE final "
                 f"tracklist as 'Track Name - Artist' lines (every track in order). "
                 f"Do NOT call add_tracks, remove_tracks, or replace_playlist — those tools are not available. "
-                f"The user will review your proposed tracklist and apply it with the Preview & Save button."
+                f"The user will review your proposed tracklist and apply it with the Preview & Save Changes button."
             )
             for msg in history:
                 if msg.get("role") == "system":
