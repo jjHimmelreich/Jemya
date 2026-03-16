@@ -15,15 +15,15 @@ export function LoginPage() {
     <div className={styles.container}>
       <div className={styles.card}>
         <div className={styles.logo}>
-          <img src="/music-svgrepo-com.svg" alt="Jemya" className={styles.logoImg} />
+          <img src="/music-svgrepo-com.svg" alt="Jam-ya" className={styles.logoImg} />
         </div>
-        <h1 className={styles.title}>Jemya</h1>
+        <h1 className={styles.title}>Jam-ya</h1>
         <p className={styles.subtitle}>Your AI-powered playlist companion</p>
         <button className={styles.loginBtn} onClick={handleLogin} disabled={loading}>
           {loading ? 'Redirecting…' : 'Connect with Spotify'}
         </button>
         <p className={styles.hint}>
-          Jemya enriches and transforms your playlists using AI. Connect your Spotify account to get
+          Jam-ya enriches and transforms your playlists using AI. Connect your Spotify account to get
           started.
         </p>
       </div>

@@ -1,5 +1,5 @@
 """
-Jemya FastAPI Backend
+Jam-ya FastAPI Backend
 Run with: uvicorn backend.main:app --reload --port 8000
 """
 import sys, os
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Jemya API",
+    title="Jam-ya API",
     description="AI Playlist Generator – FastAPI backend",
     version="2.0.0",
     lifespan=lifespan,
@@ -67,7 +67,7 @@ app.include_router(mcp.router, prefix="/mcp")
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "jemya-api"}
+    return {"status": "ok", "service": "jam-ya-api"}
 
 
 # ── Serve compiled React frontend in production ───────────────────────────────

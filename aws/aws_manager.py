@@ -44,20 +44,23 @@ class Colors:
 class JemyaAWSManager:
     """Complete AWS infrastructure management for Jemya project"""
     
-    def __init__(self, region: str = 'eu-west-1', auto_mode: bool = False):
+    def __init__(self, region: str = 'eu-west-1', auto_mode: bool = False, profile: str = None):
         self.region = region
         self.auto_mode = auto_mode
         self.project_name = "jemya"
         self.logger = self._setup_logging()
         
+        # Build a boto3 session (optionally with a named profile)
+        session = boto3.Session(region_name=region, profile_name=profile)
+
         # AWS clients
         try:
-            self.ec2_client = boto3.client('ec2', region_name=region)
-            self.ec2_resource = boto3.resource('ec2', region_name=region)
-            self.ecr_client = boto3.client('ecr', region_name=region)
-            self.iam_client = boto3.client('iam')
-            self.sts_client = boto3.client('sts')
-            self.ssm_client = boto3.client('ssm', region_name=region)
+            self.ec2_client = session.client('ec2', region_name=region)
+            self.ec2_resource = session.resource('ec2', region_name=region)
+            self.ecr_client = session.client('ecr', region_name=region)
+            self.iam_client = session.client('iam')
+            self.sts_client = session.client('sts')
+            self.ssm_client = session.client('ssm', region_name=region)
         except NoCredentialsError:
             self._print_error("AWS credentials not configured")
             sys.exit(1)
@@ -485,17 +488,18 @@ class JemyaAWSManager:
         # Launch instance
         self._print_info("Launching EC2 instance")
         
-        # Get latest Ubuntu AMI
+        # Get latest Amazon Linux 2 AMI
         ami_response = self.ec2_client.describe_images(
             Filters=[
-                {'Name': 'name', 'Values': ['ubuntu/images/hvm-ssd/ubuntu-22.04-amd64-server-*']},
-                {'Name': 'owner-id', 'Values': ['099720109477']}  # Canonical
+                {'Name': 'name', 'Values': ['amzn2-ami-hvm-2.0.*-x86_64-gp2']},
+                {'Name': 'owner-alias', 'Values': ['amazon']},
+                {'Name': 'state', 'Values': ['available']}
             ],
-            Owners=['099720109477']
+            Owners=['amazon']
         )
         
         if not ami_response['Images']:
-            self._print_error("No Ubuntu AMI found")
+            self._print_error("No Amazon Linux 2 AMI found")
             sys.exit(1)
         
         # Sort by creation date and get latest
@@ -604,11 +608,18 @@ class JemyaAWSManager:
         sys.exit(1)
     
     def _get_user_data_script(self) -> str:
-        """Get user data script for EC2 instance initialization"""
+        """Get user data script for EC2 instance initialization (Amazon Linux 2)"""
         return """#!/bin/bash
 # Update system
-apt-get update
-apt-get install -y docker.io docker-compose nginx git
+yum update -y
+
+# Install Docker
+amazon-linux-extras install docker -y
+yum install -y nginx git
+
+# Install docker-compose
+curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
 
 # Start services
 systemctl start docker
@@ -616,31 +627,27 @@ systemctl enable docker
 systemctl start nginx
 systemctl enable nginx
 
-# Add ubuntu user to docker group
-usermod -aG docker ubuntu
+# Add ec2-user to docker group
+usermod -aG docker ec2-user
 
 # Create application directory
-mkdir -p /home/ubuntu/jemya
-chown ubuntu:ubuntu /home/ubuntu/jemya
+mkdir -p /home/ec2-user/jemya
+chown ec2-user:ec2-user /home/ec2-user/jemya
 
-# Basic nginx configuration
-cat > /etc/nginx/sites-available/default << 'EOF'
+# Basic nginx placeholder config
+cat > /etc/nginx/conf.d/jemya.conf << 'EOF'
 server {
     listen 80 default_server;
-    listen [::]:80 default_server;
-    
-    root /var/www/html;
-    index index.html index.htm index.nginx-debian.html;
-    
     server_name _;
-    
     location / {
-        try_files $uri $uri/ =404;
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
     }
 }
 EOF
 
-systemctl reload nginx
+nginx -t && systemctl reload nginx
 
 # Signal completion
 echo "User data script completed" > /var/log/user-data.log
@@ -1351,7 +1358,7 @@ echo "User data script completed" > /var/log/user-data.log
             self._print_error(f"Deployment failed: {e}")
             return False
     
-    def _run_ssm_command(self, instance_id: str, command: str) -> bool:
+    def _run_ssm_command(self, instance_id: str, command: str, timeout_minutes: int = 2) -> bool:
         """Run a command on EC2 instance via Session Manager"""
         try:
             response = self.ssm_client.send_command(
@@ -1363,11 +1370,13 @@ echo "User data script completed" > /var/log/user-data.log
             command_id = response['Command']['CommandId']
             
             # Wait for command to complete
+            # Delay=5s, MaxAttempts = timeout_minutes * 12  (5s * 12 = 60s per minute)
+            max_attempts = max(30, timeout_minutes * 12)
             waiter = self.ssm_client.get_waiter('command_executed')
             waiter.wait(
                 CommandId=command_id,
                 InstanceId=instance_id,
-                WaiterConfig={'Delay': 2, 'MaxAttempts': 30}
+                WaiterConfig={'Delay': 5, 'MaxAttempts': max_attempts}
             )
             
             # Get command result
@@ -1441,7 +1450,260 @@ echo "User data script completed" > /var/log/user-data.log
         except Exception as e:
             self._print_error(f"Failed to get ECR repository: {e}")
             return None
-    
+
+    # ========== DOMAIN & DNS MANAGEMENT ==========
+
+    def setup_elastic_ip(self) -> str:
+        """Allocate an Elastic IP and associate it with the Jemya EC2 instance"""
+        self._print_header("🌐 Setting up Elastic IP")
+
+        instance = self._find_jemya_instance()
+        if not instance:
+            self._print_error("No EC2 instance found. Run 'setup' first.")
+            sys.exit(1)
+
+        instance_id = instance['InstanceId']
+
+        # Check if an EIP is already associated with this instance
+        response = self.ec2_client.describe_addresses(
+            Filters=[{'Name': 'instance-id', 'Values': [instance_id]}]
+        )
+        if response['Addresses']:
+            eip = response['Addresses'][0]
+            self._print_success(f"Elastic IP already associated: {eip['PublicIp']}")
+            return eip['PublicIp']
+
+        # Allocate a new Elastic IP
+        self._print_info("Allocating new Elastic IP...")
+        alloc = self.ec2_client.allocate_address(Domain='vpc')
+        allocation_id = alloc['AllocationId']
+        public_ip = alloc['PublicIp']
+        self._print_success(f"Allocated Elastic IP: {public_ip} (AllocationId: {allocation_id})")
+
+        # Associate with the instance
+        self._print_info(f"Associating Elastic IP with instance {instance_id}...")
+        self.ec2_client.associate_address(
+            InstanceId=instance_id,
+            AllocationId=allocation_id
+        )
+        self._print_success(f"Associated {public_ip} with {instance_id}")
+        return public_ip
+
+
+    def setup_ssl_certificate(self, domain: str, instance_id: str):
+        """Install certbot and obtain a Let's Encrypt certificate via SSM (Amazon Linux 2)"""
+        self._print_header(f"🔒 Setting up Let's Encrypt SSL for {domain}")
+
+        # ── Step 1: Install certbot ────────────────────────────────────────────
+        self._print_info("Installing certbot via EPEL (this may take 2–3 minutes)...")
+        install_cmd = """
+set -e
+amazon-linux-extras install epel -y
+yum install -y certbot
+"""
+        if not self._run_ssm_command(instance_id, install_cmd, timeout_minutes=10):
+            self._print_error("Failed to install certbot")
+            return
+
+        # ── Step 2: Fix nginx so ACME HTTP-01 challenge is served on port 80 ──
+        # Let's Encrypt follows HTTP→HTTPS redirects, so the challenge path must
+        # be served from BOTH the HTTP and HTTPS server blocks.
+        self._print_info("Updating nginx to serve ACME challenge on HTTP and HTTPS...")
+        acme_nginx_cmd = f"""
+set -e
+mkdir -p /usr/share/nginx/html/.well-known/acme-challenge
+cat > /etc/nginx/conf.d/jemya.conf << 'NGINXEOF'
+server {{
+    listen 80;
+    listen [::]:80;
+    server_name {domain} www.{domain};
+    root /usr/share/nginx/html;
+
+    # Serve Let's Encrypt ACME challenge without redirect (LE follows redirects to HTTPS too)
+    location ^~ /.well-known/acme-challenge/ {{
+        default_type "text/plain";
+        try_files $uri =404;
+    }}
+
+    # Redirect everything else to HTTPS
+    location / {{
+        return 301 https://$host$request_uri;
+    }}
+}}
+
+server {{
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name {domain} www.{domain};
+
+    ssl_certificate /etc/nginx/ssl/jemya.crt;
+    ssl_certificate_key /etc/nginx/ssl/jemya.key;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+
+    root /usr/share/nginx/html;
+
+    # Also serve ACME challenge over HTTPS (LE follows HTTP->HTTPS redirects)
+    location ^~ /.well-known/acme-challenge/ {{
+        default_type "text/plain";
+        try_files $uri =404;
+    }}
+
+    location / {{
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }}
+}}
+NGINXEOF
+nginx -t && systemctl reload nginx
+"""
+        if not self._run_ssm_command(instance_id, acme_nginx_cmd, timeout_minutes=2):
+            self._print_error("Failed to update nginx for ACME challenge")
+            return
+
+        # ── Step 3: Obtain certificate via webroot ─────────────────────────────
+        self._print_info(f"Requesting certificate for {domain} and www.{domain}...")
+        certbot_cmd = (
+            f"certbot certonly --webroot -w /usr/share/nginx/html "
+            f"-d {domain} -d www.{domain} "
+            f"--non-interactive --agree-tos --register-unsafely-without-email"
+        )
+        if not self._run_ssm_command(instance_id, certbot_cmd, timeout_minutes=5):
+            self._print_error(
+                "certbot failed. Make sure DNS has fully propagated, then re-run:\n"
+                f"  python3 aws_manager.py domain --action ssl --domain {domain}"
+            )
+            return
+
+        # ── Step 4: Swap nginx to use the issued Let's Encrypt certificate ─────
+        self._print_info("Updating nginx to use the Let's Encrypt certificate...")
+        final_nginx_cmd = f"""
+set -e
+cat > /etc/nginx/conf.d/jemya.conf << 'NGINXEOF'
+server {{
+    listen 80;
+    listen [::]:80;
+    server_name {domain} www.{domain};
+    root /usr/share/nginx/html;
+
+    location ^~ /.well-known/acme-challenge/ {{
+        default_type "text/plain";
+    }}
+
+    location / {{
+        return 301 https://$host$request_uri;
+    }}
+}}
+
+server {{
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name {domain} www.{domain};
+
+    ssl_certificate /etc/letsencrypt/live/{domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/{domain}/chain.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+
+    location / {{
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }}
+}}
+NGINXEOF
+nginx -t && systemctl reload nginx
+
+# Enable auto-renewal via cron
+(crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --post-hook 'systemctl reload nginx'") | sort -u | crontab -
+"""
+        if self._run_ssm_command(instance_id, final_nginx_cmd, timeout_minutes=2):
+            self._print_success(f"SSL certificate active for {domain}")
+            self._print_success("HTTPS is live with a trusted Let's Encrypt certificate")
+            self._print_success("Auto-renewal cron job installed (runs daily at 03:00)")
+        else:
+            self._print_error("nginx reload with Let's Encrypt cert failed — check /var/log/nginx/error.log")
+
+
+    def setup_domain(self, domain: str):
+        """Domain setup: Elastic IP + GoDaddy DNS instructions + nginx + SSL"""
+        self._print_header(f"🌍 Domain Setup: {domain}")
+
+        # Step 1: Elastic IP
+        elastic_ip = self.setup_elastic_ip()
+
+        # Step 2: Print GoDaddy DNS instructions
+        self._print_header("✅ Elastic IP Ready!")
+        print(f"\n{Colors.BOLD}Your Elastic IP:{Colors.END}  {elastic_ip}")
+        print(f"\n{Colors.BOLD}{Colors.YELLOW}⚠️  ACTION REQUIRED — Set DNS in GoDaddy{Colors.END}")
+        print(f"Log in to GoDaddy → Domains → {domain} → DNS → Manage DNS")
+        print("Add or edit these records:\n")
+        print(f"  {Colors.CYAN}Type: A  |  Name: @    |  Value: {elastic_ip}  |  TTL: 600{Colors.END}")
+        print(f"  {Colors.CYAN}Type: A  |  Name: www  |  Value: {elastic_ip}  |  TTL: 600{Colors.END}")
+        print(
+            f"\n{Colors.BLUE}ℹ️  DNS propagation takes 5–30 minutes. Verify with:{Colors.END}\n"
+            f"    nslookup {domain} 8.8.8.8   # should return {elastic_ip}"
+        )
+        print(
+            f"{Colors.BLUE}ℹ️  Once DNS resolves to your IP, run SSL setup:{Colors.END}\n"
+            f"    python3 aws_manager.py domain --action ssl --domain {domain}"
+        )
+
+    def domain_status(self, domain: str):
+        """Show Elastic IP and DNS status for the domain"""
+        self._print_header(f"🌍 Domain Status: {domain}")
+
+        # Elastic IP
+        instance = self._find_jemya_instance()
+        if instance:
+            resp = self.ec2_client.describe_addresses(
+                Filters=[{'Name': 'instance-id', 'Values': [instance['InstanceId']]}]
+            )
+            if resp['Addresses']:
+                eip = resp['Addresses'][0]['PublicIp']
+                self._print_success(f"Elastic IP: {eip}")
+            else:
+                self._print_warning("Elastic IP: Not allocated")
+                eip = None
+        else:
+            self._print_warning("EC2 Instance: Not found")
+            eip = None
+
+        # DNS check via system resolver
+        import socket
+        try:
+            resolved = socket.gethostbyname(domain)
+            if eip and resolved == eip:
+                self._print_success(f"DNS: {domain} → {resolved} ✅ matches Elastic IP")
+            else:
+                self._print_warning(f"DNS: {domain} → {resolved} ⚠️  expected {eip}")
+        except socket.gaierror:
+            self._print_warning(f"DNS: {domain} could not be resolved")
+
     # ========== MAIN COMMANDS ==========
     
     def setup_complete_infrastructure(self):
@@ -1518,6 +1780,7 @@ Commands:
   status      Show current infrastructure status
   deploy      Deploy application using Session Manager
   ssh         Manage admin SSH access (add/update current IP)
+  domain      Configure custom domain (Route 53, Elastic IP, DNS, SSL)
   
 Examples:
   python3 aws_manager.py setup                          # Complete setup
@@ -1526,10 +1789,13 @@ Examples:
   python3 aws_manager.py deploy                         # Deploy latest image
   python3 aws_manager.py deploy --image-tag 1a2b3c4d   # Deploy specific commit
   python3 aws_manager.py ssh                            # Add/update SSH access for current IP
+  python3 aws_manager.py domain                         # Full domain setup for jam-ya.com
+  python3 aws_manager.py domain --action status         # Show domain/DNS/SSL status
+  python3 aws_manager.py domain --action ssl            # Install Let's Encrypt cert (after DNS propagates)
         """
     )
     
-    parser.add_argument('command', choices=['setup', 'cleanup', 'status', 'deploy', 'ssh'],
+    parser.add_argument('command', choices=['setup', 'cleanup', 'status', 'deploy', 'ssh', 'domain'],
                         help='Command to execute')
     parser.add_argument('--region', default='eu-west-1',
                         help='AWS region (default: eu-west-1)')
@@ -1541,12 +1807,19 @@ Examples:
                         help='Docker image tag to deploy (default: latest)')
     parser.add_argument('--deploy-only', action='store_true',
                         help='Skip build phase and deploy pre-built image from ECR (for CI/CD)')
+    parser.add_argument('--profile', default=None,
+                        help='AWS credentials profile name (e.g. jemya). Overrides AWS_PROFILE env var.')
+    parser.add_argument('--domain', default='jam-ya.com',
+                        help='Domain name (default: jam-ya.com)')
+    parser.add_argument('--action', default='setup',
+                        choices=['setup', 'status', 'ssl'],
+                        help='Domain sub-action: setup (full), status, ssl (only — run after DNS propagates)')
 
     
     args = parser.parse_args()
     
     # Create manager
-    manager = JemyaAWSManager(region=args.region, auto_mode=args.auto)
+    manager = JemyaAWSManager(region=args.region, auto_mode=args.auto, profile=args.profile)
     
     # Execute command
     if args.command == 'setup':
@@ -1566,6 +1839,17 @@ Examples:
             ssh_sg_id = manager.setup_admin_ssh_security_group()
             if ssh_sg_id:
                 manager._update_instance_security_groups(None, ssh_sg_id)
+    elif args.command == 'domain':
+        if args.action == 'setup':
+            manager.setup_domain(args.domain)
+        elif args.action == 'status':
+            manager.domain_status(args.domain)
+        elif args.action == 'ssl':
+            instance = manager._find_jemya_instance()
+            if instance:
+                manager.setup_ssl_certificate(args.domain, instance['InstanceId'])
+            else:
+                manager._print_error("No EC2 instance found.")
 
 
 if __name__ == '__main__':
