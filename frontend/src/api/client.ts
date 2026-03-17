@@ -47,10 +47,41 @@ export const getMe = async (tokenInfo: TokenInfo): Promise<UserInfo> => {
   return data;
 };
 
+// ── YouTube Auth ──────────────────────────────────────────────────────────────
+
+export const getYtLoginUrl = async (): Promise<string> => {
+  const { data } = await http.get<{ auth_url: string }>('/auth/youtube/login-url');
+  return data.auth_url;
+};
+
+export const exchangeYtCode = async (code: string): Promise<TokenInfo> => {
+  const { data } = await http.post<{ token_info: TokenInfo }>('/auth/youtube/callback', { code });
+  return data.token_info;
+};
+
+export const refreshYtToken = async (tokenInfo: TokenInfo): Promise<TokenInfo> => {
+  const { data } = await http.post<{ token_info: TokenInfo }>('/auth/youtube/refresh', {
+    token_info: tokenInfo,
+  });
+  return data.token_info;
+};
+
+export const getYtMe = async (tokenInfo: TokenInfo): Promise<UserInfo> => {
+  const { data } = await http.post<UserInfo>('/auth/youtube/me', { token_info: tokenInfo });
+  return data;
+};
+
 // ── Playlists ─────────────────────────────────────────────────────────────────
 
 export const getPlaylists = async (tokenInfo: TokenInfo): Promise<PlaylistItem[]> => {
   const { data } = await http.post<PlaylistItem[]>('/playlists/', {
+    token_info: tokenInfo,
+  });
+  return data;
+};
+
+export const getYtPlaylists = async (tokenInfo: TokenInfo): Promise<PlaylistItem[]> => {
+  const { data } = await http.post<PlaylistItem[]>('/playlists/youtube/', {
     token_info: tokenInfo,
   });
   return data;
@@ -61,6 +92,16 @@ export const getPlaylistTracks = async (
   playlistId: string,
 ): Promise<TrackItem[]> => {
   const { data } = await http.post<TrackItem[]>(`/playlists/${playlistId}/tracks`, {
+    token_info: tokenInfo,
+  });
+  return data;
+};
+
+export const getYtPlaylistTracks = async (
+  tokenInfo: TokenInfo,
+  playlistId: string,
+): Promise<TrackItem[]> => {
+  const { data } = await http.post<TrackItem[]>(`/playlists/youtube/${playlistId}/tracks`, {
     token_info: tokenInfo,
   });
   return data;
@@ -86,7 +127,10 @@ export const previewChanges = async (
   playlistId: string,
   trackSuggestions: object[],
 ): Promise<PreviewData> => {
-  const { data } = await http.post<PreviewData>(`/playlists/${playlistId}/preview`, {
+  const endpoint = tokenInfo.source === 'youtube'
+    ? `/playlists/youtube/${playlistId}/preview`
+    : `/playlists/${playlistId}/preview`;
+  const { data } = await http.post<PreviewData>(endpoint, {
     token_info: tokenInfo,
     playlist_id: playlistId,
     track_suggestions: trackSuggestions,

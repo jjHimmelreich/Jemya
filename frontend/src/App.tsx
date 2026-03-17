@@ -1,9 +1,19 @@
 import { useAuth } from './hooks/useAuth';
+import { useYouTubeAuth } from './hooks/useYouTubeAuth';
 import { LoginPage } from './pages/LoginPage';
 import { AppPage } from './pages/AppPage';
 
 export default function App() {
-  const { tokenInfo, userInfo, loading, logout, ensureValidToken } = useAuth();
+  const spotify = useAuth();
+  const youtube = useYouTubeAuth();
+
+  const loading = spotify.loading || youtube.loading;
+
+  // Determine active session — prefer YouTube if the URL path is a YT callback
+  const activeToken = youtube.tokenInfo ?? spotify.tokenInfo;
+  const activeUser = youtube.userInfo ?? spotify.userInfo;
+  const activeLogout = youtube.tokenInfo ? youtube.logout : spotify.logout;
+  const activeEnsureValid = youtube.tokenInfo ? youtube.ensureValidToken : spotify.ensureValidToken;
 
   if (loading) {
     return (
@@ -18,14 +28,22 @@ export default function App() {
           fontSize: '1.1rem',
         }}
       >
-        Connecting to Spotify…
+        Connecting…
       </div>
     );
   }
 
-  if (!tokenInfo) {
+  if (!activeToken) {
     return <LoginPage />;
   }
 
-  return <AppPage tokenInfo={tokenInfo} userInfo={userInfo} onLogout={logout} ensureValidToken={ensureValidToken} />;
+  return (
+    <AppPage
+      tokenInfo={activeToken}
+      userInfo={activeUser}
+      onLogout={activeLogout}
+      ensureValidToken={activeEnsureValid}
+    />
+  );
 }
+

@@ -28,6 +28,11 @@ SPOTIFY_CLIENT_SECRET = get_config('SPOTIFY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = get_config('SPOTIFY_REDIRECT_URI')
 OPENAI_API_KEY = get_config('OPENAI_API_KEY')
 
+# YouTube / Google OAuth configuration
+YOUTUBE_CLIENT_ID = get_config('YOUTUBE_CLIENT_ID', default=None)
+YOUTUBE_CLIENT_SECRET = get_config('YOUTUBE_CLIENT_SECRET', default=None)
+YOUTUBE_REDIRECT_URI = get_config('YOUTUBE_REDIRECT_URI', default=None)
+
 # Optional AWS configuration
 AWS_REGION = get_config('AWS_REGION', 'us-east-1')
 ENVIRONMENT = get_config('ENVIRONMENT', 'development')

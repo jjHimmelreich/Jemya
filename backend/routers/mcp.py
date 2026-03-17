@@ -30,19 +30,21 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Valid token_info required for MCP mode")
 
     # Raise 401 if the token is already expired so the frontend refreshes it.
-    # We must NOT refresh here — a backend-side refresh discards the new
-    # token_info (including the rotated refresh_token) and the frontend would
-    # later fail to refresh with the stale token it still holds.
     expires_at = token_info.get("expires_at")
     if expires_at and time.time() > float(expires_at):
-        raise HTTPException(status_code=401, detail="Spotify token expired – please refresh")
+        source_label = token_info.get("source", "Spotify")
+        raise HTTPException(status_code=401, detail=f"{source_label} token expired – please refresh")
 
     access_token = token_info["access_token"]
+    source = token_info.get("source", "spotify")  # 'spotify' or 'youtube'
 
     history = [m.model_dump(exclude_none=True) for m in body.conversation_history]
 
-    # Use the persistent MCP manager from app state (started once at startup)
-    mcp_manager = getattr(request.app.state, "mcp_manager", None)
+    # Select the persistent MCP manager for the correct source
+    if source == "youtube":
+        mcp_manager = getattr(request.app.state, "yt_mcp_manager", None)
+    else:
+        mcp_manager = getattr(request.app.state, "mcp_manager", None)
     # mcp_manager may be None if the MCP server failed to start (e.g. missing
     # config).  In that case we fall back to plain OpenAI without tool calls so
     # the user still gets AI assistance, just without live Spotify tool access.
@@ -53,21 +55,26 @@ async def mcp_chat(body: MCPChatRequest, request: Request) -> dict:
         # Inject system message if missing
         if not any(m.get("role") == "system" for m in history):
             system_msg = ai_manager.generate_system_message(
-                has_spotify_connection=True, mcp_mode=mcp_manager is not None
+                has_spotify_connection=True, mcp_mode=mcp_manager is not None, source=source
             )
             history.insert(0, {"role": "system", "content": system_msg})
 
         # Inject active playlist context so AI knows which playlist to target
         if body.playlist_id:
+            id_label = "YouTube playlist ID" if source == "youtube" else "Spotify ID"
             active_ctx = (
                 f"\n\nACTIVE PLAYLIST:\n"
                 f"• Name: {body.playlist_name}\n"
-                f"• Spotify ID: `{body.playlist_id}`\n"
-                f"When the user asks to enrich or modify this playlist, read it with read_playlist(`{body.playlist_id}`), "
-                f"analyze the tracks, search for additions with search_tracks(), then output the COMPLETE final "
-                f"tracklist as 'Track Name - Artist' lines (every track in order). "
-                f"Do NOT call add_tracks, remove_tracks, or replace_playlist — those tools are not available. "
-                f"The user will review your proposed tracklist and apply it with the Preview & Save Changes button."
+                f"• {id_label}: `{body.playlist_id}`\n"
+                f"For any modification request on this playlist you MUST:\n"
+                f"  1. Call read_playlist(`{body.playlist_id}`) to get the current full tracklist.\n"
+                f"  2. Compute the desired final state (add, remove, reorder — whatever was asked).\n"
+                f"  3. Output EVERY track in the final playlist as plain 'Track Name - Artist' lines "
+                f"(one per line, in order). Include ALL existing tracks that should remain PLUS all new ones.\n"
+                f"  Example: user asks to add 1 track to a 10-track playlist → your output has 11 lines.\n"
+                f"  Example: user asks to remove 1 track from a 10-track playlist → your output has 9 lines.\n"
+                f"The Preview & Save Changes button sends your ENTIRE output to replace the playlist. "
+                f"Any track you omit will be permanently deleted."
             )
             for msg in history:
                 if msg.get("role") == "system":

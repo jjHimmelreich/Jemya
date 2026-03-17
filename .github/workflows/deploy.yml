@@ -315,6 +315,9 @@ jobs:
         export SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}"
         export SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}"
         export SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}"
+        export YOUTUBE_CLIENT_ID="${{ secrets.YOUTUBE_CLIENT_ID }}"
+        export YOUTUBE_CLIENT_SECRET="${{ secrets.YOUTUBE_CLIENT_SECRET }}"
+        export YOUTUBE_REDIRECT_URI="${{ secrets.YOUTUBE_REDIRECT_URI }}"
         export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
         export ENVIRONMENT="production"
         

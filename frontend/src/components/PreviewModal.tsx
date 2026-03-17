@@ -1,4 +1,4 @@
-import type { PreviewData, ApplyResult } from '../types';
+import type { PreviewData, ApplyResult, MusicSource } from '../types';
 import styles from './PreviewModal.module.css';
 
 interface Props {
@@ -7,10 +7,12 @@ interface Props {
   applyResult: ApplyResult | null;
   onApply: () => void;
   onClose: () => void;
+  source?: MusicSource;
 }
 
-export function PreviewModal({ preview, applying, applyResult, onApply, onClose }: Props) {
+export function PreviewModal({ preview, applying, applyResult, onApply, onClose, source }: Props) {
   if (!preview) return null;
+  const serviceName = source === 'youtube' ? 'YouTube' : 'Spotify';
 
   return (
     <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -65,7 +67,7 @@ export function PreviewModal({ preview, applying, applyResult, onApply, onClose 
             <div className={styles.actions}>
               <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
               <button className={styles.applyBtn} onClick={onApply} disabled={applying}>
-                {applying ? 'Applying…' : 'Apply to Spotify'}
+                {applying ? 'Applying…' : `Apply to ${serviceName}`}
               </button>
             </div>
           </>

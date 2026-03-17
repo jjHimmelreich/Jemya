@@ -1,11 +1,12 @@
 """
-Playlists router – CRUD operations on Spotify playlists.
+Playlists router – CRUD operations on Spotify and YouTube playlists.
 """
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
 from backend.services.spotify_service import SpotifyService
+from backend.services.youtube_service import YouTubeService
 from backend.models.schemas import (
     CreatePlaylistRequest,
     GetUserPlaylistsRequest,
@@ -16,7 +17,10 @@ from backend.models.schemas import (
 
 router = APIRouter(tags=["playlists"])
 spotify = SpotifyService()
+youtube = YouTubeService()
 
+
+# ── Spotify ───────────────────────────────────────────────────────────────────
 
 @router.post("/")
 def get_user_playlists(body: GetUserPlaylistsRequest) -> List[Dict[str, Any]]:
@@ -47,10 +51,16 @@ def get_playlist_tracks(playlist_id: str, body: GetPlaylistTracksRequest) -> Lis
 
 @router.post("/create")
 def create_playlist(body: CreatePlaylistRequest) -> Dict[str, Any]:
-    """Create a new Spotify playlist."""
-    success, message, playlist_id = spotify.create_playlist(
-        body.token_info, body.name, body.description, body.public
-    )
+    """Create a new playlist (Spotify or YouTube depending on token source)."""
+    source = (body.token_info or {}).get("source", "spotify")
+    if source == "youtube":
+        success, message, playlist_id = youtube.create_playlist(
+            body.token_info, body.name, body.description, body.public
+        )
+    else:
+        success, message, playlist_id = spotify.create_playlist(
+            body.token_info, body.name, body.description, body.public
+        )
     if not success:
         raise HTTPException(status_code=400, detail=message)
     return {"success": True, "message": message, "playlist_id": playlist_id}
@@ -58,14 +68,41 @@ def create_playlist(body: CreatePlaylistRequest) -> Dict[str, Any]:
 
 @router.post("/{playlist_id}/preview")
 def preview_changes(playlist_id: str, body: PreviewChangesRequest) -> Dict[str, Any]:
-    """Preview what tracks would be added/removed without modifying Spotify."""
+    """Preview what tracks would be added/removed without modifying the playlist."""
+    source = (body.token_info or {}).get("source", "spotify")
+    if source == "youtube":
+        return youtube.preview_changes(body.token_info, playlist_id, body.track_suggestions)
     return spotify.preview_changes(body.token_info, playlist_id, body.track_suggestions)
 
 
 @router.post("/{playlist_id}/apply")
 def apply_changes(playlist_id: str, body: ApplyChangesRequest) -> Dict[str, Any]:
-    """Apply AI-suggested track changes to the playlist."""
-    result = spotify.apply_changes(body.token_info, playlist_id, body.track_suggestions)
+    """Apply AI-suggested track changes to the playlist (Spotify or YouTube)."""
+    source = (body.token_info or {}).get("source", "spotify")
+    if source == "youtube":
+        result = youtube.apply_changes(body.token_info, playlist_id, body.track_suggestions)
+    else:
+        result = spotify.apply_changes(body.token_info, playlist_id, body.track_suggestions)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Apply failed"))
     return result
+
+
+# ── YouTube ───────────────────────────────────────────────────────────────────
+
+@router.post("/youtube/")
+def get_youtube_playlists(body: GetUserPlaylistsRequest) -> List[Dict[str, Any]]:
+    """Return all YouTube playlists for the authenticated user."""
+    return youtube.get_user_playlists(body.token_info)
+
+
+@router.post("/youtube/{playlist_id}/tracks")
+def get_youtube_playlist_tracks(playlist_id: str, body: GetPlaylistTracksRequest) -> List[Dict[str, Any]]:
+    """Return all videos for the given YouTube playlist."""
+    return youtube.get_playlist_tracks(body.token_info, playlist_id)
+
+
+@router.post("/youtube/{playlist_id}/preview")
+def preview_youtube_changes(playlist_id: str, body: PreviewChangesRequest) -> Dict[str, Any]:
+    """Preview what YouTube videos would be added without modifying the playlist."""
+    return youtube.preview_changes(body.token_info, playlist_id, body.track_suggestions)

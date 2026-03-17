@@ -4,7 +4,7 @@ import { ChatWindow } from '../components/ChatWindow';
 import { PreviewModal } from '../components/PreviewModal';
 import { useChat } from '../hooks/useChat';
 import { usePlaylists } from '../hooks/usePlaylists';
-import { extractTracks, previewChanges, applyChanges, getPlaylistTracks, createPlaylist, loadConversation } from '../api/client';
+import { extractTracks, previewChanges, applyChanges, getPlaylistTracks, getYtPlaylistTracks, createPlaylist, loadConversation } from '../api/client';
 import type { PlaylistItem, TrackItem, TokenInfo, UserInfo, PreviewData, ApplyResult } from '../types';
 import styles from './AppPage.module.css';
 
@@ -20,11 +20,15 @@ function formatTime(ms: number): string {
   return seconds > 0 ? `${totalMinutes}m ${seconds}s` : `${totalMinutes}m`;
 }
 
-function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[]): string {
+function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[], source?: string): string {
   const ownerName = playlist.owner_name || 'Unknown';
   const isPublic = playlist.public;
-  const spotifyUrl = `https://open.spotify.com/playlist/${playlist.id}`;
-  let table = `## ![](/spotify-icon.svg) [${playlist.name}](${spotifyUrl})\n\n`;
+  const isYt = source === 'youtube';
+  const playlistUrl = isYt
+    ? `https://www.youtube.com/playlist?list=${playlist.id}`
+    : `https://open.spotify.com/playlist/${playlist.id}`;
+  const sourceIcon = isYt ? '' : '![](/spotify-icon.svg) ';
+  let table = `## ${sourceIcon}[${playlist.name}](${playlistUrl})\n\n`;
   table += `**Playlist ID:** \`${playlist.id}\`\n`;
   table += `**Created by:** ${ownerName} • **${tracks.length} tracks** • ${isPublic ? 'Public' : 'Private'}\n\n`;
 
@@ -43,9 +47,11 @@ function buildTracksTable(playlist: PlaylistItem, tracks: TrackItem[]): string {
 
     let name = (track.name || 'Unknown').substring(0, 40);
     if ((track.name || '').length > 40) name += '...';
-    const trackUrl = track.spotify_url
-      ? `${track.spotify_url}?context=spotify:playlist:${playlist.id}`
-      : null;
+    const trackUrl = isYt
+      ? (track.uri ? `https://www.youtube.com/watch?v=${track.uri}` : null)
+      : (track.spotify_url
+        ? `${track.spotify_url}?context=spotify:playlist:${playlist.id}`
+        : null);
     const nameDisplay = trackUrl ? `[${name}](${trackUrl})` : name;
 
     let artist = (track.artists || 'Unknown').substring(0, 30);
@@ -78,6 +84,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
   const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistItem | null>(null);
   const [playlistLoading, setPlaylistLoading] = useState(false);
   const mcpMode = true;
+  const source = tokenInfo.source ?? 'spotify';
 
   // Preview / apply state
   const [showPreview, setShowPreview] = useState(false);
@@ -85,19 +92,27 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
   const [previewLoading, setPreviewLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
+  // Current live tracks for the selected playlist — used to merge AI additions
+  // The full merged suggestion list built during preview — reused by apply
+  const [pendingSuggestions, setPendingSuggestions] = useState<object[]>([]);
 
   const { playlists, loading: playlistsLoading, fetchPlaylists, updatePlaylistCount } = usePlaylists(tokenInfo);
+
+  const fetchTracks = useCallback(
+    (id: string) => source === 'youtube' ? getYtPlaylistTracks(tokenInfo, id) : getPlaylistTracks(tokenInfo, id),
+    [tokenInfo, source],
+  );
 
   // After AI mutates a playlist: refresh list AND correct track count for the selected playlist
   const handlePlaylistMutated = useCallback(async () => {
     await fetchPlaylists();
     if (selectedPlaylist && tokenInfo) {
       try {
-        const freshTracks = await getPlaylistTracks(tokenInfo, selectedPlaylist.id);
+        const freshTracks = await fetchTracks(selectedPlaylist.id);
         updatePlaylistCount(selectedPlaylist.id, freshTracks.length);
       } catch { /* ignore */ }
     }
-  }, [fetchPlaylists, selectedPlaylist, tokenInfo, updatePlaylistCount]);
+  }, [fetchPlaylists, selectedPlaylist, tokenInfo, updatePlaylistCount, fetchTracks]);
 
   const chat = useChat({
     tokenInfo,
@@ -121,7 +136,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
       // Fetch saved conversation and current tracks in parallel
       const [savedMessages, tracks] = await Promise.all([
         userInfo?.id ? loadConversation(userInfo.id, p.id) : Promise.resolve([]),
-        getPlaylistTracks(tokenInfo, p.id),
+        fetchTracks(p.id),
       ]);
 
       updatePlaylistCount(p.id, tracks.length);
@@ -131,7 +146,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         chat.restoreMessages(savedMessages);
       } else {
         // Fresh start: inject tracks table only
-        const tableContent = buildTracksTable(p, tracks);
+        const tableContent = buildTracksTable(p, tracks, source);
         chat.clearMessages();
         chat.injectMessage(tableContent, 'user');
       }
@@ -162,13 +177,41 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     }
   };
 
+  /**
+   * Build the full final tracklist from AI suggestions.
+   * Always fetches the current playlist fresh from the API to avoid stale state.
+   * If the AI gave fewer tracks than currently in the playlist → treat as additions
+   * and merge them in. Otherwise treat the AI output as a full replacement.
+   */
+  const buildMergedSuggestions = async (lastSugs: string[]): Promise<object[]> => {
+    const { tracks: aiTracks } = await extractTracks(lastSugs);
+
+    // Fetch the live playlist so we always have accurate current state
+    const liveTracks = selectedPlaylist ? await fetchTracks(selectedPlaylist.id) : [];
+
+    if (liveTracks.length === 0 || aiTracks.length >= liveTracks.length) {
+      // AI gave a full replacement list (or playlist is empty)
+      return aiTracks;
+    }
+
+    // AI gave additions only — keep all existing tracks, append new ones
+    const aiNames = new Set(
+      aiTracks.map((t: Record<string, string>) => (t.track_name ?? '').toLowerCase().trim()),
+    );
+    const existing = liveTracks
+      .filter(t => !aiNames.has(t.name.toLowerCase().trim()))
+      .map(t => ({ track_name: t.name, artist: t.artists }));
+    return [...existing, ...aiTracks];
+  };
+
   const handlePreview = async () => {
     if (!chat.lastSuggestions || !selectedPlaylist) return;
     setPreviewLoading(true);
     setApplyResult(null);
     try {
-      const { tracks } = await extractTracks(chat.lastSuggestions);
-      const data = await previewChanges(tokenInfo, selectedPlaylist.id, tracks);
+      const merged = await buildMergedSuggestions(chat.lastSuggestions);
+      setPendingSuggestions(merged);
+      const data = await previewChanges(tokenInfo, selectedPlaylist.id, merged);
       setPreviewData(data);
       setShowPreview(true);
     } catch (e) {
@@ -182,15 +225,20 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
     if (!previewData || !selectedPlaylist) return;
     setApplying(true);
     try {
-      const { tracks } = await extractTracks(chat.lastSuggestions ?? []);
-      const result = await applyChanges(tokenInfo, selectedPlaylist.id, tracks);
+      // For YouTube: reuse the already-resolved video IDs from preview to avoid
+      // burning quota on a second round of search.list calls (100 units each).
+      // For Spotify: re-use pendingSuggestions as before.
+      const tracksToApply = source === 'youtube'
+        ? previewData.tracks_to_add
+        : pendingSuggestions;
+      const result = await applyChanges(tokenInfo, selectedPlaylist.id, tracksToApply);
       setApplyResult(result);
 
       if (result.success) {
         // Fetch the now-live playlist and inject the refreshed table into chat
-        const freshTracks = await getPlaylistTracks(tokenInfo, selectedPlaylist.id);
+        const freshTracks = await fetchTracks(selectedPlaylist.id);
         updatePlaylistCount(selectedPlaylist.id, freshTracks.length);
-        const tableContent = buildTracksTable(selectedPlaylist, freshTracks);
+        const tableContent = buildTracksTable(selectedPlaylist, freshTracks, source);
         chat.injectMessage(tableContent, 'user');
       }
     } catch (e) {
@@ -224,7 +272,11 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
               <div>
                 <a
                   className={styles.playlistName}
-                  href={`https://open.spotify.com/playlist/${selectedPlaylist.id}`}
+                  href={
+                    source === 'youtube'
+                      ? `https://www.youtube.com/playlist?list=${selectedPlaylist.id}`
+                      : `https://open.spotify.com/playlist/${selectedPlaylist.id}`
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -253,7 +305,9 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
             <div className={styles.welcomeCard}>
               <img src="/music-svgrepo-com.svg" className={styles.welcomeIcon} alt="" />
               <h1 className={styles.welcomeTitle}>Welcome to Jam-ya</h1>
-              <p className={styles.welcomeSubtitle}>Your AI-powered Spotify playlist manager</p>
+              <p className={styles.welcomeSubtitle}>
+                Your AI-powered {source === 'youtube' ? 'YouTube Music' : 'Spotify'} playlist manager
+              </p>
               <ol className={styles.steps}>
                 <li className={styles.step}>
                   <span className={styles.stepNum}>1</span>
@@ -288,6 +342,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
           applying={applying}
           applyResult={applyResult}
           onApply={handleApply}
+          source={source as import('../types').MusicSource}
           onClose={() => {
             setShowPreview(false);
             if (applyResult) setApplyResult(null);

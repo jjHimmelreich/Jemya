@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { exchangeCode, refreshToken, getMe, getLoginUrl, setSessionExpiredHandler } from '../api/client';
+import { exchangeYtCode, refreshYtToken, getYtMe, getYtLoginUrl } from '../api/client';
 import type { TokenInfo, UserInfo } from '../types';
 
-const TOKEN_KEY = 'jemya_token';
+const YT_TOKEN_KEY = 'yt_token';
 
-export function useAuth() {
+export function useYouTubeAuth() {
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(() => {
-    const stored = localStorage.getItem(TOKEN_KEY);
+    const stored = localStorage.getItem(YT_TOKEN_KEY);
     return stored ? JSON.parse(stored) : null;
   });
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
@@ -15,32 +15,33 @@ export function useAuth() {
   // Persist token changes
   useEffect(() => {
     if (tokenInfo) {
-      localStorage.setItem(TOKEN_KEY, JSON.stringify(tokenInfo));
+      localStorage.setItem(YT_TOKEN_KEY, JSON.stringify(tokenInfo));
     } else {
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(YT_TOKEN_KEY);
     }
   }, [tokenInfo]);
 
   // Load user info when token is available
   useEffect(() => {
     if (tokenInfo && !userInfo) {
-      getMe(tokenInfo)
+      getYtMe(tokenInfo)
         .then(setUserInfo)
         .catch(() => logout());
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenInfo]);
 
-  // Handle Spotify OAuth callback: http://127.0.0.1:5555/callback?code=...
-  // Only intercept when on the root callback path (not /callback/youtube).
+  // Handle YouTube OAuth callback: http://localhost:5555/callback/youtube?code=...
+  // Google OAuth sends the code via the regular ?code= parameter on the redirect URI.
+  // We only process it when the current path is /callback/youtube.
   useEffect(() => {
-    if (window.location.pathname.startsWith('/callback/')) return; // YouTube callback — ignore
+    if (!window.location.pathname.startsWith('/callback/youtube')) return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     if (code) {
       setLoading(true);
-      // Redirect back to root after consuming the code
       window.history.replaceState({}, '', '/');
-      exchangeCode(code)
+      exchangeYtCode(code)
         .then((token) => setTokenInfo(token))
         .catch(console.error)
         .finally(() => setLoading(false));
@@ -48,7 +49,7 @@ export function useAuth() {
   }, []);
 
   const login = useCallback(async () => {
-    const url = await getLoginUrl();
+    const url = await getYtLoginUrl();
     window.location.href = url;
   }, []);
 
@@ -57,20 +58,12 @@ export function useAuth() {
     setUserInfo(null);
   }, []);
 
-  // Wire 401 interceptor: expired token → clean logout
-  useEffect(() => {
-    setSessionExpiredHandler(() => {
-      setTokenInfo(null);
-      setUserInfo(null);
-    });
-  }, []);
-
   const ensureValidToken = useCallback(async (): Promise<TokenInfo | null> => {
     if (!tokenInfo) return null;
     const now = Date.now() / 1000;
     if (tokenInfo.expires_at && tokenInfo.expires_at - now < 60) {
       try {
-        const refreshed = await refreshToken(tokenInfo);
+        const refreshed = await refreshYtToken(tokenInfo);
         setTokenInfo(refreshed);
         return refreshed;
       } catch {
@@ -88,7 +81,7 @@ export function useAuth() {
       const now = Date.now() / 1000;
       if (tokenInfo.expires_at && tokenInfo.expires_at - now < 120) {
         try {
-          const refreshed = await refreshToken(tokenInfo);
+          const refreshed = await refreshYtToken(tokenInfo);
           setTokenInfo(refreshed);
         } catch {
           logout();
