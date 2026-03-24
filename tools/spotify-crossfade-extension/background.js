@@ -4,7 +4,8 @@
  * background.js — Jam-ya Auto Fade service worker
  *
  * Owns three concerns:
- *   1. Token management  – stores Bearer token from jam-ya.com OAuth
+ *   1. Token management  – stores Bearer token; supports Jam-ya OAuth and
+ *                          user-provided Client ID + PKCE (standalone mode)
  *   2. Playback polling  – calls GET /v1/me/player every 3 s (2 s near end of track)
  *   3. Fade engine       – PUT /v1/me/player/volume on smooth equal-power curve
  *
@@ -19,8 +20,12 @@ const state = {
   // Token
   token:       null,   // Raw Bearer token for Spotify API calls
   tokenExpiry: 0,      // Unix ms — estimated expiry
-  tokenSource: null,   // 'intercepted' | 'jamya' | null
+  tokenSource: null,   // 'jamya' | 'pkce' | null
   tokenInfo:   null,   // Full token_info object (jamya source only, for refresh)
+
+  // User-provided credentials (standalone / PKCE mode)
+  spotifyClientId:     null,
+  spotifyClientSecret: null,
 
   // Playback (last known)
   trackId:     null,
@@ -62,6 +67,7 @@ const WARN = (...args) => console.warn('[Jemya/bg]', ...args);
 async function loadState() {
   const s = await chrome.storage.local.get([
     'token', 'tokenExpiry', 'tokenSource', 'tokenInfo',
+    'spotifyClientId', 'spotifyClientSecret',
     'crossfadeEnabled', 'fadeOutDuration', 'fadeInDuration', 'minVolume',
     'fadeOutCurveName', 'fadeInCurveName', 'preFadeVolume',
   ]);
@@ -69,6 +75,8 @@ async function loadState() {
   if (s.tokenExpiry   !== undefined) state.tokenExpiry   = s.tokenExpiry;
   if (s.tokenSource   !== undefined) state.tokenSource   = s.tokenSource;
   if (s.tokenInfo     !== undefined) state.tokenInfo     = s.tokenInfo;
+  if (s.spotifyClientId     !== undefined) state.spotifyClientId     = s.spotifyClientId;
+  if (s.spotifyClientSecret !== undefined) state.spotifyClientSecret = s.spotifyClientSecret;
   if (s.crossfadeEnabled  !== undefined) state.crossfadeEnabled  = s.crossfadeEnabled;
   if (s.fadeOutDuration   !== undefined) state.fadeOutDuration   = s.fadeOutDuration;
   if (s.fadeInDuration    !== undefined) state.fadeInDuration    = s.fadeInDuration;
@@ -309,6 +317,7 @@ function forcePoll() {
 }
 
 async function pollPlayback() {
+  if (!state.token) return; // silently skip — no token yet
   let data;
   try {
     data = await spotifyFetch('GET', '/v1/me/player');
@@ -388,6 +397,11 @@ function updateIcon() {
     path: { 128: connected ? 'icons/icon-128.png' : 'icons/icon-128-off.png' },
   });
 }
+
+chrome.tabs.onActivated.addListener(() => updateIcon());
+chrome.tabs.onUpdated.addListener((_tabId, info) => {
+  if (info.status === 'complete') updateIcon();
+});
 
 // ── Alarms keepalive + poll heartbeat ─────────────────────────────────────────
 // MV3 service workers die after ~30s of inactivity. setTimeout alone cannot
@@ -495,9 +509,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       break;
 
     case 'START_OAUTH':
-      startOAuthFlow();
+      startOAuthFlow(sendResponse);
+      return true; // async response
+
+    case 'SET_CREDENTIALS':
+      state.spotifyClientId     = msg.clientId     || null;
+      state.spotifyClientSecret = msg.clientSecret || null;
+      chrome.storage.local.set({
+        spotifyClientId:     state.spotifyClientId,
+        spotifyClientSecret: state.spotifyClientSecret,
+      });
+      LOG('🔑 Credentials updated — clientId:', state.spotifyClientId?.slice(0, 8) + '…');
       sendResponse({ ok: true });
       break;
+
+    case 'LOGOUT':
+      state.token       = null;
+      state.tokenExpiry = 0;
+      state.tokenSource = null;
+      state.tokenInfo   = null;
+      persistToken()
+        .then(() => {
+          LOG('👋 Logged out — token cleared');
+          broadcast();
+          sendResponse({ ok: true });
+        });
+      return true; // async response
   }
 });
 
@@ -612,23 +649,94 @@ function handleSetSetting(key, value) {
   broadcast();
 }
 
-// ── OAuth flow (fallback) ─────────────────────────────────────────────────────────
-// Opens Spotify OAuth in a new tab. Spotify redirects to jam-ya.com/callback
-// where the React app exchanges the code and stores token in localStorage.
-// content-jamya.js then picks it up and sends it here via JAMYA_TOKEN.
+// ── OAuth flow ────────────────────────────────────────────────────────────────
+// Two modes:
+//   Standalone: user provided their own Client ID + Secret → use
+//               chrome.identity.launchWebAuthFlow which intercepts the
+//               chromiumapp.org redirect and returns the code directly.
+//               We exchange the code for a token here, no server needed.
+//   Jam-ya:     open a tab to jam-ya.com/callback; content-jamya.js picks
+//               up the stored token and forwards it via JAMYA_TOKEN.
 
 const SPOTIFY_CLIENT_ID = '535ef4e171b74750836388e73b3c20d7';
 const SPOTIFY_REDIRECT  = 'https://jam-ya.com/callback';
 const SPOTIFY_SCOPE     = 'user-read-playback-state user-modify-playback-state';
 
-function startOAuthFlow() {
-  const params = new URLSearchParams({
-    client_id:     SPOTIFY_CLIENT_ID,
-    response_type: 'code',
-    redirect_uri:  SPOTIFY_REDIRECT,
-    scope:         SPOTIFY_SCOPE,
-  });
-  chrome.tabs.create({ url: `https://accounts.spotify.com/authorize?${params}` });
+function startOAuthFlow(sendResponse) {
+  if (state.spotifyClientId) {
+    // ── Standalone mode ──────────────────────────────────────────────────────
+    const clientId    = state.spotifyClientId;
+    const redirectUri = chrome.identity.getRedirectURL();
+    const params = new URLSearchParams({
+      client_id:     clientId,
+      response_type: 'code',
+      redirect_uri:  redirectUri,
+      scope:         SPOTIFY_SCOPE,
+    });
+    const authUrl = `https://accounts.spotify.com/authorize?${params}`;
+
+    chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true }, async (responseUrl) => {
+      if (chrome.runtime.lastError || !responseUrl) {
+        const msg = chrome.runtime.lastError?.message || 'OAuth cancelled';
+        WARN('⚠ OAuth cancelled or failed:', msg);
+        sendResponse?.({ ok: false, error: msg });
+        return;
+      }
+      // Extract authorization code from the redirect URL
+      const url  = new URL(responseUrl);
+      const code = url.searchParams.get('code');
+      if (!code) {
+        WARN('⚠ No code in OAuth redirect:', responseUrl);
+        sendResponse?.({ ok: false, error: 'No authorisation code returned' });
+        return;
+      }
+      // Exchange code for token directly with Spotify
+      try {
+        const body = new URLSearchParams({
+          grant_type:   'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          client_id:    clientId,
+          client_secret: state.spotifyClientSecret || '',
+        });
+        const res = await fetch('https://accounts.spotify.com/api/token', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body:    body.toString(),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          WARN('⚠ Token exchange failed:', res.status, err);
+          sendResponse?.({ ok: false, error: `Token exchange failed (${res.status})` });
+          return;
+        }
+        const data = await res.json();
+        state.token       = data.access_token;
+        state.tokenExpiry = Date.now() + (data.expires_in ?? 3600) * 1000;
+        state.tokenSource = 'pkce';
+        state.tokenInfo   = data.refresh_token ? { refresh_token: data.refresh_token } : null;
+        LOG('🔑 Token stored (standalone):', state.token.slice(0, 12) + '…');
+        persistToken();
+        startPolling();
+        updateIcon();
+        broadcast();
+        sendResponse?.({ ok: true });
+      } catch (e) {
+        WARN('⚠ Token exchange error:', e.message);
+        sendResponse?.({ ok: false, error: e.message });
+      }
+    });
+  } else {
+    // ── Jam-ya mode ──────────────────────────────────────────────────────────
+    const params = new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      response_type: 'code',
+      redirect_uri:  SPOTIFY_REDIRECT,
+      scope:         SPOTIFY_SCOPE,
+    });
+    chrome.tabs.create({ url: `https://accounts.spotify.com/authorize?${params}` });
+    sendResponse?.({ ok: true });
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

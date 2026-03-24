@@ -50,16 +50,17 @@ function render(s) {
   const authEl     = document.getElementById('authStatus');
   const connectBtn = document.getElementById('connectBtn');
   if (s.hasToken) {
-    authEl.textContent = s.tokenSource === 'intercepted'
-      ? '⚠ Web player token (read-only) — connect for full control'
-      : '✓ Connected via Jam-ya';
-    authEl.className   = 'auth-status ' + (s.tokenSource === 'intercepted' ? 'warn' : 'ok');
-    // Keep Connect visible if only the intercepted (limited) token is present
-    connectBtn.style.display = s.tokenSource === 'intercepted' ? 'inline-block' : 'none';
+    authEl.textContent = s.tokenSource === 'pkce'
+      ? '✓ Custom App'
+      : '✓ Jam-ya';
+    authEl.className   = 'auth-status ok';
+    connectBtn.style.display = 'none';
+    document.getElementById('logoutBtn').style.display = 'inline-block';
   } else {
-    authEl.textContent = 'Open Spotify Web Player — or connect manually';
+    authEl.textContent = 'Not connected';
     authEl.className   = 'auth-status err';
     connectBtn.style.display = 'inline-block';
+    document.getElementById('logoutBtn').style.display = 'none';
   }
 
   // Track
@@ -318,8 +319,106 @@ document.getElementById('volumeSlider').addEventListener('change', (e) => {
   send({ type: 'SET_VOLUME', value: val });
 });
 document.getElementById('connectBtn').addEventListener('click', async () => {
-  await send({ type: 'START_OAUTH' });
-  window.close();
+  const btn      = document.getElementById('connectBtn');
+  const errorMsg = document.getElementById('connectErrorMsg');
+  errorMsg.style.display = 'none';
+  btn.textContent = 'Connecting…';
+  btn.disabled    = true;
+
+  const res = await send({ type: 'START_OAUTH' });
+
+  // For Jam-ya mode the popup closes naturally when Chrome opens the new tab.
+  // For Custom App (PKCE) the popup stays open; res carries success/failure.
+  btn.textContent = 'Connect';
+  btn.disabled    = false;
+
+  if (res && res.ok === false) {
+    const msg = res.error || 'Connection failed';
+    errorMsg.textContent = msg.toLowerCase().includes('cancel') ? 'Auth cancelled — try again' : `Failed: ${msg}`;
+    errorMsg.style.display = 'block';
+  }
+});
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await send({ type: 'LOGOUT' });
+});
+
+// ── Credentials panel ─────────────────────────────────────────────────────────
+
+const gearBtn      = document.getElementById('gearBtn');
+const credsCard    = document.getElementById('credsCard');
+const credsSaveBtn  = document.getElementById('credsSaveBtn');
+const credsSavedMsg = document.getElementById('credsSavedMsg');
+
+// Mode toggle (Jam-ya vs Custom App)
+const modeJamya   = document.getElementById('modeJamya');
+const modeCustom  = document.getElementById('modeCustom');
+const jamyaPanel  = document.getElementById('jamyaPanel');
+const customPanel = document.getElementById('customPanel');
+
+async function setMode(mode) {
+  const isCustom = mode === 'custom';
+  modeJamya.classList.toggle('active', !isCustom);
+  modeCustom.classList.toggle('active', isCustom);
+  jamyaPanel.style.display  = isCustom ? 'none'  : 'block';
+  customPanel.style.display = isCustom ? 'block' : 'none';
+  document.getElementById('credsSaveBtn').style.display = isCustom ? 'inline-block' : 'none';
+  document.getElementById('connectErrorMsg').style.display = 'none';
+  await chrome.storage.local.set({ connectionMode: mode });
+  // Switching to Jam-ya clears stored custom credentials from background
+  if (!isCustom) {
+    await chrome.storage.local.remove(['spotifyClientId', 'spotifyClientSecret']);
+    await send({ type: 'SET_CREDENTIALS', clientId: null, clientSecret: null });
+  }
+}
+
+modeJamya.addEventListener('click',  () => setMode('jamya'));
+modeCustom.addEventListener('click', () => setMode('custom'));
+
+gearBtn.addEventListener('click', async () => {
+  const open = credsCard.style.display !== 'none';
+  credsCard.style.display = open ? 'none' : 'block';
+  gearBtn.classList.toggle('active', !open);
+  if (!open) {
+    // Re-read storage every time the panel opens to catch any stale state
+    await loadCredentials();
+    await populateRedirectUri();
+  }
+});
+
+// Populate redirect URI (read-only — derived from extension ID)
+async function populateRedirectUri() {
+  try {
+    const redirectUri = chrome.identity.getRedirectURL();
+    document.getElementById('credsRedirectUri').value = redirectUri;
+  } catch (_) {
+    document.getElementById('credsRedirectUri').value = 'chrome.identity not available';
+  }
+}
+
+// Load saved credentials and mode into inputs
+async function loadCredentials() {
+  const stored = await chrome.storage.local.get(['spotifyClientId', 'spotifyClientSecret', 'connectionMode']);
+  const isCustom = stored.connectionMode === 'custom';
+  modeJamya.classList.toggle('active', !isCustom);
+  modeCustom.classList.toggle('active', isCustom);
+  jamyaPanel.style.display  = isCustom ? 'none'  : 'block';
+  customPanel.style.display = isCustom ? 'block' : 'none';
+  document.getElementById('credsSaveBtn').style.display = isCustom ? 'inline-block' : 'none';
+  if (stored.spotifyClientId)     document.getElementById('credsClientId').value     = stored.spotifyClientId;
+  if (stored.spotifyClientSecret) document.getElementById('credsClientSecret').value = stored.spotifyClientSecret;
+}
+
+credsSaveBtn.addEventListener('click', async () => {
+  const clientId     = document.getElementById('credsClientId').value.trim();
+  const clientSecret = document.getElementById('credsClientSecret').value.trim();
+  if (!clientId) {
+    document.getElementById('credsClientId').focus();
+    return;
+  }
+  await chrome.storage.local.set({ spotifyClientId: clientId, spotifyClientSecret: clientSecret });
+  await send({ type: 'SET_CREDENTIALS', clientId, clientSecret });
+  credsSavedMsg.style.display = 'block';
+  setTimeout(() => { credsSavedMsg.style.display = 'none'; }, 3000);
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -327,4 +426,6 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
 (async () => {
   const s = await send({ type: 'GET_STATE' });
   if (s) applyState(s);
+  await populateRedirectUri();
+  await loadCredentials();
 })();
