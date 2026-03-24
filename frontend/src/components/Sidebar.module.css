@@ -128,6 +128,22 @@
   color: #aaa;
 }
 
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.authSourceIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
 .logoutBtn {
   background: none;
   border: none;
@@ -508,32 +524,37 @@
   color: #ccc;
 }
 
-/* ── Tools Navigation ─────────────────────────────────────────────────────── */
-.toolsNav {
-  padding: 8px 12px;
-  border-bottom: 1px solid #222;
+/* ── Bottom Nav ──────────────────────────────────────────────────────────── */
+.bottomNav {
+  display: flex;
+  flex-direction: row;
+  border-top: 1px solid #1a1a1a;
   flex-shrink: 0;
+  margin-top: auto;
 }
 
-.toolsBtn {
-  width: 100%;
+.bottomNavBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: none;
-  border: 1px solid #333;
-  color: #999;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 0.9rem;
+  border: none;
+  color: #555;
+  font-size: 0.78rem;
   font-weight: 500;
+  padding: 10px 8px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s, background 0.15s;
+  letter-spacing: 0.02em;
 }
-.toolsBtn:hover {
-  background: rgba(59, 126, 165, 0.1);
-  border-color: #3B7EA5;
-  color: #3B7EA5;
+.bottomNavBtn:hover {
+  color: #aaa;
+  background: rgba(255,255,255,0.03);
 }
-.toolsBtn.active {
-  background: rgba(59, 126, 165, 0.2);
-  border-color: #3B7EA5;
+.bottomNavBtn.bottomNavActive {
   color: #3B7EA5;
+  border-top: 2px solid #3B7EA5;
+  padding-top: 8px;
 }

@@ -28,13 +28,6 @@ const TOOLS: Tool[] = [
     icon: '🎯',
     status: 'coming-soon',
   },
-  {
-    id: 'track-analyzer',
-    name: 'Track Analyzer',
-    description: 'Analyze audio features of your playlists including tempo, energy, danceability, and more.',
-    icon: '📊',
-    status: 'coming-soon',
-  },
 ];
 
 function ToolCard({ tool }: { tool: Tool }) {

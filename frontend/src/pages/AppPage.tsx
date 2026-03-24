@@ -259,6 +259,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         loading={playlistsLoading}
         userDisplayName={userInfo?.display_name ?? userInfo?.id}
         userId={userInfo?.id}
+        authSource={source}
         onLogout={onLogout}
         onCreatePlaylist={handleCreatePlaylist}
         onRefresh={fetchPlaylists}
@@ -270,7 +271,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         onViewPlaylists={() => setCurrentView('playlists')}
       />
 
-      <main className={styles.main}>
+      <main className={`${styles.main} ${currentView === 'tools' ? styles.mainScrollable : ''}`}>
         {currentView === 'tools' ? (
           <ToolsPage />
         ) : selectedPlaylist ? (
