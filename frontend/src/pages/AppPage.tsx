@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { Sidebar } from '../components/Sidebar';
 import { ChatWindow } from '../components/ChatWindow';
 import { PreviewModal } from '../components/PreviewModal';
+import { ToolsPage } from './ToolsPage';
 import { useChat } from '../hooks/useChat';
 import { usePlaylists } from '../hooks/usePlaylists';
 import { extractTracks, previewChanges, applyChanges, getPlaylistTracks, getYtPlaylistTracks, createPlaylist, loadConversation } from '../api/client';
@@ -82,6 +83,7 @@ interface Props {
 
 export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Props) {
   const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistItem | null>(null);
+  const [currentView, setCurrentView] = useState<'playlists' | 'tools'>('playlists');
   const [playlistLoading, setPlaylistLoading] = useState(false);
   const mcpMode = true;
   const source = tokenInfo.source ?? 'spotify';
@@ -260,10 +262,18 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
         onLogout={onLogout}
         onCreatePlaylist={handleCreatePlaylist}
         onRefresh={fetchPlaylists}
+        currentView={currentView}
+        onViewTools={() => {
+          setCurrentView('tools');
+          setSelectedPlaylist(null);
+        }}
+        onViewPlaylists={() => setCurrentView('playlists')}
       />
 
       <main className={styles.main}>
-        {selectedPlaylist ? (
+        {currentView === 'tools' ? (
+          <ToolsPage />
+        ) : selectedPlaylist ? (
           <>
             <div className={styles.playlistHeader}>
               {selectedPlaylist.images?.[0]?.url && (

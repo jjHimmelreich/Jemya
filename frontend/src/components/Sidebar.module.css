@@ -507,3 +507,33 @@
   border-color: #666;
   color: #ccc;
 }
+
+/* ── Tools Navigation ─────────────────────────────────────────────────────── */
+.toolsNav {
+  padding: 8px 12px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+
+.toolsBtn {
+  width: 100%;
+  background: none;
+  border: 1px solid #333;
+  color: #999;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.toolsBtn:hover {
+  background: rgba(59, 126, 165, 0.1);
+  border-color: #3B7EA5;
+  color: #3B7EA5;
+}
+.toolsBtn.active {
+  background: rgba(59, 126, 165, 0.2);
+  border-color: #3B7EA5;
+  color: #3B7EA5;
+}

@@ -13,6 +13,7 @@ import requests
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from ytmusicapi import YTMusic
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -442,8 +443,12 @@ class YouTubeService:
             print(f"WARNING: YouTube cache write failed: {e}")
 
     def search_video(self, yt, track_name: str, artist_name: str) -> Optional[Dict[str, Any]]:
-        """Search YouTube for a video matching track_name + artist_name.
-        Results are cached on disk for 7 days to preserve quota.
+        """Search YouTube Music for a video matching track_name + artist_name.
+
+        Uses ytmusicapi (unofficial internal YouTube Music API) — zero quota cost.
+        Results are cached on disk for 7 days.
+        Falls back to the official YouTube Data API search.list (100 quota units)
+        if ytmusicapi raises an unexpected error.
         """
         query = f"{track_name} {artist_name}".strip()
         key = self._cache_key(query)
@@ -457,35 +462,29 @@ class YouTubeService:
             print(f"YouTube cache HIT (no result): '{query}'")
             return None
 
-        print(f"YouTube cache MISS: '{query}' — calling search.list (100 quota units)")
+        print(f"YouTube cache MISS: '{query}' — searching via ytmusicapi (0 quota units)")
         try:
-            resp = yt.search().list(
-                part="snippet",
-                q=query,
-                type="video",
-                maxResults=1,
-                videoCategoryId="10",  # Music category
-            ).execute()
-            items = resp.get("items", [])
-            if not items:
-                # Retry without music category filter
-                resp = yt.search().list(
-                    part="snippet",
-                    q=query,
-                    type="video",
-                    maxResults=1,
-                ).execute()
-                items = resp.get("items", [])
-            if items:
-                item = items[0]
-                video_id = item["id"]["videoId"]
-                snippet = item.get("snippet", {})
+            ytm = YTMusic()
+            results = ytm.search(query, filter="songs", limit=1)
+            if not results:
+                # Retry without filter to catch music videos / singles not indexed as songs
+                results = ytm.search(query, limit=1)
+            if results:
+                item = results[0]
+                video_id = item.get("videoId")
+                if not video_id:
+                    self._cache_set(key, None)
+                    return None
+                artists = item.get("artists") or []
+                artist_str = artists[0]["name"] if artists else artist_name
+                album = (item.get("album") or {}).get("name", "")
+                duration_ms = (item.get("duration_seconds") or 0) * 1000
                 result = {
                     "uri": video_id,
-                    "found_name": snippet.get("title", track_name),
-                    "found_artist": snippet.get("channelTitle", artist_name),
-                    "found_album": "",
-                    "duration_ms": 0,
+                    "found_name": item.get("title", track_name),
+                    "found_artist": artist_str,
+                    "found_album": album,
+                    "duration_ms": duration_ms,
                     "spotify_url": f"https://www.youtube.com/watch?v={video_id}",
                     "position_instruction": "at the end",
                     "order_index": 0,
@@ -493,11 +492,37 @@ class YouTubeService:
                 self._cache_set(key, result)
                 return result
             else:
-                self._cache_set(key, None)  # cache the miss too
+                self._cache_set(key, None)
                 return None
         except Exception as e:
-            print(f"YouTube search error for '{query}': {e}")
-            return None
+            print(f"ytmusicapi search failed for '{query}': {e} — falling back to official API")
+            try:
+                resp = yt.search().list(
+                    part="snippet", q=query, type="video", maxResults=1,
+                ).execute()
+                items = resp.get("items", [])
+                if items:
+                    item = items[0]
+                    video_id = item["id"]["videoId"]
+                    snippet = item.get("snippet", {})
+                    result = {
+                        "uri": video_id,
+                        "found_name": snippet.get("title", track_name),
+                        "found_artist": snippet.get("channelTitle", artist_name),
+                        "found_album": "",
+                        "duration_ms": 0,
+                        "spotify_url": f"https://www.youtube.com/watch?v={video_id}",
+                        "position_instruction": "at the end",
+                        "order_index": 0,
+                    }
+                    self._cache_set(key, result)
+                    return result
+                else:
+                    self._cache_set(key, None)
+                    return None
+            except Exception as e2:
+                print(f"Official API fallback also failed for '{query}': {e2}")
+                return None
 
     def preview_changes(
         self, token_info: Dict[str, Any], playlist_id: str, track_suggestions: List[Dict[str, Any]]

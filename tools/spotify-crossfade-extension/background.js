@@ -1,0 +1,656 @@
+'use strict';
+
+/**
+ * background.js — Jam-ya Auto Fade service worker
+ *
+ * Owns three concerns:
+ *   1. Token management  – stores Bearer token from jam-ya.com OAuth
+ *   2. Playback polling  – calls GET /v1/me/player every 3 s (2 s near end of track)
+ *   3. Fade engine       – PUT /v1/me/player/volume on smooth equal-power curve
+ *
+ * Auth source:
+ *   Jamya OAuth – user connects via jam-ya.com; content-jamya.js reads the
+ *                 resulting token from localStorage and sends it here.
+ */
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+const state = {
+  // Token
+  token:       null,   // Raw Bearer token for Spotify API calls
+  tokenExpiry: 0,      // Unix ms — estimated expiry
+  tokenSource: null,   // 'intercepted' | 'jamya' | null
+  tokenInfo:   null,   // Full token_info object (jamya source only, for refresh)
+
+  // Playback (last known)
+  trackId:     null,
+  trackName:   null,
+  artistName:  null,
+  progressMs:  0,
+  durationMs:  0,
+  isPlaying:   false,
+  volumePercent: 50,
+
+  // Crossfade settings
+  crossfadeEnabled:   true,
+  fadeOutDuration:    5000, // ms — how long the fade-out lasts
+  fadeInDuration:     5000, // ms — how long the fade-in lasts
+  minVolume:          3,    // % — lowest volume during fade (never fully silent)
+  fadeOutCurveName:   'scurve',  // 'linear' | 'logarithmic' | 'exponential' | 'scurve' | 'eqpower'
+  fadeInCurveName:    'scurve',  // 'linear' | 'logarithmic' | 'exponential' | 'scurve' | 'eqpower'
+
+  // Fade state
+  preFadeVolume: 50,    // volume captured before fade-out started
+  preFadeVolumeProtected: false, // true between fade-out end and fade-in read — blocks poll sync
+  isFadingOut:   false,
+  isFadingIn:    false,
+  fadeInterval:  null,  // setInterval handle for the active fade step loop
+
+  // Polling
+  pollTimer:     null,
+  pollIntervalMs: 3000,
+
+  // Rate-limit
+  rateLimitUntil: 0,
+};
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+const LOG = (...args) => console.log('[Jemya/bg]', ...args);
+const WARN = (...args) => console.warn('[Jemya/bg]', ...args);
+
+async function loadState() {
+  const s = await chrome.storage.local.get([
+    'token', 'tokenExpiry', 'tokenSource', 'tokenInfo',
+    'crossfadeEnabled', 'fadeOutDuration', 'fadeInDuration', 'minVolume',
+    'fadeOutCurveName', 'fadeInCurveName', 'preFadeVolume',
+  ]);
+  if (s.token         !== undefined) state.token         = s.token;
+  if (s.tokenExpiry   !== undefined) state.tokenExpiry   = s.tokenExpiry;
+  if (s.tokenSource   !== undefined) state.tokenSource   = s.tokenSource;
+  if (s.tokenInfo     !== undefined) state.tokenInfo     = s.tokenInfo;
+  if (s.crossfadeEnabled  !== undefined) state.crossfadeEnabled  = s.crossfadeEnabled;
+  if (s.fadeOutDuration   !== undefined) state.fadeOutDuration   = s.fadeOutDuration;
+  if (s.fadeInDuration    !== undefined) state.fadeInDuration    = s.fadeInDuration;
+  if (s.minVolume         !== undefined) state.minVolume         = s.minVolume;
+  if (s.fadeOutCurveName  !== undefined) state.fadeOutCurveName  = s.fadeOutCurveName;
+  if (s.fadeInCurveName   !== undefined) state.fadeInCurveName   = s.fadeInCurveName;
+  if (s.preFadeVolume     !== undefined) state.preFadeVolume     = s.preFadeVolume;
+  LOG('📦 State loaded from storage — token:', state.token ? state.token.slice(0, 12) + '…' : 'none', '| source:', state.tokenSource);
+}
+
+async function persistToken() {
+  await chrome.storage.local.set({
+    token:        state.token,
+    tokenExpiry:  state.tokenExpiry,
+    tokenSource:  state.tokenSource,
+    tokenInfo:    state.tokenInfo,
+    preFadeVolume: state.preFadeVolume,
+  });
+}
+
+async function persistSettings() {
+  await chrome.storage.local.set({
+    crossfadeEnabled: state.crossfadeEnabled,
+    fadeOutDuration:  state.fadeOutDuration,
+    fadeInDuration:   state.fadeInDuration,
+    minVolume:        state.minVolume,
+    fadeOutCurveName: state.fadeOutCurveName,
+    fadeInCurveName:  state.fadeInCurveName,
+  });
+}
+
+// ── Spotify API helper ────────────────────────────────────────────────────────
+
+async function getValidToken() {
+  const isAlive = state.token && Date.now() < state.tokenExpiry - 60_000;
+  if (!isAlive) LOG('🔄 Token stale/missing — source:', state.tokenSource, '| expiry in:', Math.round((state.tokenExpiry - Date.now()) / 1000) + 's');
+  if (isAlive) return state.token;
+
+  // Try refreshing if token came from jam-ya.com backend (has refresh_token)
+  if (state.tokenSource === 'jamya' && state.tokenInfo?.refresh_token) {
+    try {
+      const res = await fetch('https://jam-ya.com/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_info: state.tokenInfo }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const ti = data.token_info;
+        state.tokenInfo   = ti;
+        state.token       = ti.access_token;
+        state.tokenExpiry = (ti.expires_at ?? 0) * 1000;
+        await persistToken();
+        LOG('✅ Token refreshed via jam-ya.com');
+        return state.token;
+      } else {
+        WARN('❌ jam-ya.com refresh failed:', res.status);
+      }
+    } catch (e) { WARN('❌ jam-ya.com refresh error:', e.message); }
+  }
+
+  return state.token;
+}
+
+async function spotifyFetch(method, path, body = null) {
+  if (Date.now() < state.rateLimitUntil) {
+    throw Object.assign(new Error('rate_limited'), { code: 429 });
+  }
+
+  const token = await getValidToken();
+  if (!token) throw Object.assign(new Error('no_token'), { code: 0 });
+
+  const opts = {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  };
+  if (body !== null) opts.body = JSON.stringify(body);
+
+  const res = await fetch(`https://api.spotify.com${path}`, opts);
+
+  if (res.status === 429) {
+    const retry = parseInt(res.headers.get('Retry-After') ?? '5', 10);
+    state.rateLimitUntil = Date.now() + retry * 1000;
+    WARN('⏱ Rate limited — pausing for', retry, 's');
+    throw Object.assign(new Error('rate_limited'), { code: 429 });
+  }
+
+  if (res.status === 401) {
+    WARN('🔒 401 Unauthorized — marking token stale, waiting for re-capture');
+    state.token       = null;
+    state.tokenExpiry = 0;
+    await persistToken();
+    throw Object.assign(new Error('unauthorized'), { code: 401 });
+  }
+
+  if (res.status === 204 || res.status === 202) return null; // success, no body
+  if (!res.ok) throw Object.assign(new Error(`http_${res.status}`), { code: res.status });
+
+  return res.json();
+}
+
+// ── Volume control ────────────────────────────────────────────────────────────
+
+async function setVolume(vol) {
+  const v = Math.max(state.minVolume, Math.min(100, Math.round(vol)));
+  state.volumePercent = v;
+  await spotifyFetch('PUT', `/v1/me/player/volume?volume_percent=${v}`);
+}
+
+// ── Fade engine ───────────────────────────────────────────────────────────────
+
+/**
+ * applyCurve(name, t) — normalised 0→1 output for position t ∈ [0,1].
+ *
+ *   'linear'      — constant rate
+ *   'exponential' — slow start, fast finish  (t²)
+ *   'logarithmic' — fast start, slow finish  (ln-based, perceptually natural)
+ *   'scurve'      — zero slope at both ends  (smoothstep)
+ *   'eqpower'     — equal-power sin          (gentle start, confident finish)
+ *
+ * Fade-out: vol = minV + (from − minV) × (1 − applyCurve(fadeOutCurveName, t))
+ * Fade-in:  vol = minV + (to − minV)   ×       applyCurve(fadeInCurveName,  t)
+ */
+function applyCurve(name, t) {
+  const c = Math.max(0, Math.min(1, t));
+  switch (name) {
+    case 'linear':      return c;
+    case 'exponential': return c * c;
+    case 'logarithmic': return Math.log(1 + c * (Math.E - 1));
+    case 'eqpower':     return Math.sin(c * Math.PI * 0.5);
+    default:            return c * c * (3 - 2 * c); // 'scurve'
+  }
+}
+
+function cancelActiveFade() {
+  if (state.fadeInterval) {
+    clearInterval(state.fadeInterval);
+    state.fadeInterval = null;
+  }
+  state.isFadingOut = false;
+  state.isFadingIn  = false;
+}
+
+/**
+ * Fade volume from current level to 0 over `durationMs` milliseconds.
+ * Called when the track is approaching its end.
+ */
+function startFadeOut(durationMs) {
+  if (state.isFadingOut || state.isFadingIn) return;
+
+  LOG(`🔉 Fade-out starting: ${state.volumePercent}% → 1 over ${Math.round(durationMs / 1000 * 10) / 10}s`);
+  const from = state.volumePercent;
+  const stepMs = 250; // 4 writes/sec — Spotify rate limit is 1 call per 250ms
+  const totalSteps = Math.max(1, Math.floor(durationMs / stepMs));
+  let step = 0;
+
+  state.preFadeVolume = from;
+  state.preFadeVolumeProtected = true; // protect until startFadeIn reads it
+  state.isFadingOut   = true;
+
+  state.fadeInterval = setInterval(async () => {
+    step++;
+    const t   = step / totalSteps;
+    // Fade from `from` down to minVolume
+    const vol = state.minVolume + (from - state.minVolume) * (1 - applyCurve(state.fadeOutCurveName, t));
+    try { await setVolume(vol); } catch (_) {}
+
+    if (step >= totalSteps) {
+      clearInterval(state.fadeInterval);
+      state.fadeInterval = null;
+      state.isFadingOut  = false;
+    }
+  }, stepMs);
+}
+
+/**
+ * Fade volume from minVolume to the pre-fade level over fadeInDuration ms.
+ * Called immediately after a new track is detected.
+ */
+function startFadeIn() {
+  cancelActiveFade();
+
+  const to         = state.preFadeVolume || state.volumePercent || 50;
+  state.preFadeVolumeProtected = false; // safe to sync from API again after this read
+  const durationMs = state.fadeInDuration;
+  const stepMs     = 250; // 4 writes/sec — Spotify rate limit is 1 call per 250ms
+  const totalSteps = Math.max(1, Math.floor(durationMs / stepMs));
+  let step = 0;
+
+  LOG(`🔊 Fade-in starting: 1 → ${to}% over ${durationMs / 1000}s (${totalSteps} steps)`);
+  state.isFadingIn = true;
+
+  // Start at minimum volume immediately
+  setVolume(state.minVolume).catch(() => {});
+
+  state.fadeInterval = setInterval(async () => {
+    step++;
+    const t   = step / totalSteps;
+    // Fade from minVolume up to `to`
+    const vol = state.minVolume + (to - state.minVolume) * applyCurve(state.fadeInCurveName, t);
+    try { await setVolume(vol); } catch (_) {}
+
+    if (step >= totalSteps) {
+      clearInterval(state.fadeInterval);
+      state.fadeInterval  = null;
+      state.isFadingIn    = false;
+      state.volumePercent = to;
+      state.preFadeVolume = to;
+      // Guarantee final volume is exact
+      setVolume(to).catch(() => {});
+    }
+  }, stepMs);
+}
+
+// ── Playback polling ──────────────────────────────────────────────────────────
+
+function schedulePoll() {
+  state.pollTimer = setTimeout(() => {
+    pollPlayback().finally(schedulePoll);
+  }, state.pollIntervalMs);
+}
+
+function startPolling() {
+  if (!state.pollTimer) schedulePoll();
+}
+
+/** Cancel the pending poll and run one immediately (used after transport commands). */
+function forcePoll() {
+  if (state.pollTimer) {
+    clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+  }
+  state.pollIntervalMs = 2000; // stay slightly fast after skip
+  schedulePoll();
+}
+
+async function pollPlayback() {
+  let data;
+  try {
+    data = await spotifyFetch('GET', '/v1/me/player');
+  } catch (e) {
+    WARN('⚠ Poll failed:', e.message);
+    return;
+  }
+
+  // No active playback or no track
+  if (!data || !data.item) {
+    LOG('⏸ No active playback');
+    return;
+  }
+
+  const prevTrackId = state.trackId;
+  state.trackId    = data.item.id;
+  state.trackName  = data.item.name;
+  state.artistName = (data.item.artists ?? []).map((a) => a.name).join(', ');
+  state.progressMs = data.progress_ms ?? 0;
+  state.durationMs = data.item.duration_ms ?? 0;
+  state.isPlaying  = data.is_playing ?? false;
+
+  // Sync volume from API only when not actively writing it ourselves
+  if (!state.isFadingOut && !state.isFadingIn) {
+    const apiVol = data.device?.volume_percent;
+    if (apiVol !== null && apiVol !== undefined) {
+      state.volumePercent = apiVol;
+      // Don't overwrite preFadeVolume while it's protected — it holds the
+      // real user volume that startFadeIn needs to restore to.
+      if (!state.preFadeVolumeProtected) state.preFadeVolume = apiVol;
+    }
+  }
+
+  LOG(`🎵 "${state.trackName}" — ${Math.round(state.progressMs / 1000)}s / ${Math.round(state.durationMs / 1000)}s | vol: ${state.volumePercent}% | fading: ${state.isFadingOut ? 'out' : state.isFadingIn ? 'in' : 'no'}`);
+
+  // ── A new track started — always check even during fades ──────────────────
+  // This is the ONLY way fade-in gets triggered for natural track advances.
+  if (prevTrackId && prevTrackId !== state.trackId) {
+    LOG('⏭ Track changed:', prevTrackId?.slice(0, 8), '→', state.trackId?.slice(0, 8));
+    cancelActiveFade();
+    if (state.crossfadeEnabled) startFadeIn();
+    broadcast();
+    return;
+  }
+
+  // ── Skip fade triggers while already fading ────────────────────────────────
+  if (state.isFadingOut || state.isFadingIn) {
+    broadcast();
+    return;
+  }
+
+  // ── Approaching end of track — begin fade-out ─────────────────────────────
+  // The trigger window is halfFade + one full poll interval, so a late-firing
+  // poll never misses the window. The fade always runs for the full halfFade
+  // duration regardless of when the poll actually fired within the window.
+  const fadeOutDur = state.fadeOutDuration;
+  if (state.crossfadeEnabled && state.isPlaying && !state.isFadingOut && !state.isFadingIn) {
+    const remaining = state.durationMs - state.progressMs;
+    if (remaining > 200 && remaining <= fadeOutDur + state.pollIntervalMs) {
+      LOG(`⏳ Fade window: ${Math.round(remaining / 1000 * 10) / 10}s remaining → fading out over ${fadeOutDur / 1000}s`);
+      startFadeOut(fadeOutDur);
+    }
+  }
+
+  // ── Adaptive poll rate: tighten up near the fade window ───────────────────
+  const remaining  = state.durationMs - state.progressMs;
+  const wantFast   = state.crossfadeEnabled && remaining <= fadeOutDur + 8000;
+  state.pollIntervalMs = wantFast ? 1000 : 3000;
+  broadcast();
+}
+
+// ── Icon state ───────────────────────────────────────────────────────────────
+
+function updateIcon() {
+  const connected = !!state.token && Date.now() < state.tokenExpiry + 120_000;
+  chrome.action.setIcon({
+    path: { 128: connected ? 'icons/icon-128.png' : 'icons/icon-128-off.png' },
+  });
+}
+
+// ── Alarms keepalive + poll heartbeat ─────────────────────────────────────────
+// MV3 service workers die after ~30s of inactivity. setTimeout alone cannot
+// prevent this. chrome.alarms guarantees periodic wakeup.
+
+const ALARM_NAME = 'jemya-heartbeat';
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== ALARM_NAME) return;
+  LOG('⏰ Heartbeat alarm — worker alive, poll running:', !!state.pollTimer);
+  // Restart polling if the setTimeout loop died while the worker was suspended
+  if (!state.pollTimer) {
+    LOG('🔁 Restarting polling after worker suspension');
+    startPolling();
+  }
+});
+
+function ensureAlarm() {
+  chrome.alarms.get(ALARM_NAME, (existing) => {
+    if (!existing) {
+      chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~24s
+      LOG('⏰ Heartbeat alarm created (24s)');
+    }
+  });
+}
+
+// ── Popup state broadcast ─────────────────────────────────────────────────────
+
+function getPublicState() {
+  return {
+    hasToken:          !!state.token && Date.now() < state.tokenExpiry + 120_000,
+    tokenSource:       state.tokenSource,
+    trackId:           state.trackId,
+    trackName:         state.trackName,
+    artistName:        state.artistName,
+    progressMs:        state.progressMs,
+    durationMs:        state.durationMs,
+    isPlaying:         state.isPlaying,
+    volumePercent:     state.volumePercent,
+    crossfadeEnabled: state.crossfadeEnabled,
+    fadeOutDuration:  state.fadeOutDuration,
+    fadeInDuration:   state.fadeInDuration,
+    minVolume:        state.minVolume,
+    fadeOutCurveName: state.fadeOutCurveName,
+    fadeInCurveName:  state.fadeInCurveName,
+    isFadingOut:      state.isFadingOut,
+    isFadingIn:       state.isFadingIn,
+    rateLimited:      Date.now() < state.rateLimitUntil,
+    snapshotAt:        Date.now(),
+  };
+}
+
+function broadcast() {
+  updateIcon();
+  chrome.runtime.sendMessage({ type: 'STATE_UPDATE', state: getPublicState() })
+    .catch(() => {}); // popup may not be open — ignore
+}
+
+// ── Message handling ──────────────────────────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  switch (msg.type) {
+
+    case 'JAMYA_TOKEN':
+      handleJamyaToken(msg.token, msg.tokenInfo);
+      sendResponse({ ok: true });
+      break;
+
+    case 'GET_STATE':
+      sendResponse(getPublicState());
+      break;
+
+    case 'CONTROL':
+      handleControl(msg.action)
+        .then(() => sendResponse({ ok: true }))
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true; // async response
+
+    case 'SET_SETTING':
+      handleSetSetting(msg.key, msg.value);
+      sendResponse({ ok: true });
+      break;
+
+    case 'SET_VOLUME':
+      // Direct volume change from popup slider — cancel any active fade first
+      cancelActiveFade();
+      setVolume(msg.value)
+        .then(() => { state.preFadeVolume = msg.value; sendResponse({ ok: true }); })
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true; // async response
+
+    case 'SEEK':
+      spotifyFetch('PUT', `/v1/me/player/seek?position_ms=${Math.round(msg.positionMs)}`)
+        .then(() => {
+          state.progressMs = msg.positionMs;
+          forcePoll();
+          sendResponse({ ok: true });
+        })
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true; // async response
+
+    case 'TEST_FADE':
+      testFade();
+      sendResponse({ ok: true });
+      break;
+
+    case 'START_OAUTH':
+      startOAuthFlow();
+      sendResponse({ ok: true });
+      break;
+  }
+});
+
+// Keepalive port from content-bridge.js — having this open prevents the
+// service worker from sleeping while a Spotify Web Player tab is open.
+chrome.runtime.onConnect.addListener((_port) => {
+  // Intentionally empty — just holding the port open is enough.
+});
+
+// ── Token handlers ────────────────────────────────────────────────────────────
+
+function handleJamyaToken(token, tokenInfo) {
+  if (!token) return;
+
+  state.token       = token;
+  state.tokenInfo   = tokenInfo ?? null;
+  state.tokenExpiry = tokenInfo?.expires_at
+    ? tokenInfo.expires_at * 1000
+    : Date.now() + 3_600_000;
+  state.tokenSource = 'jamya';
+
+  LOG('🔑 Token stored (jamya):', token.slice(0, 12) + '…');
+  persistToken();
+  startPolling();
+  updateIcon();
+  broadcast();
+}
+
+// ── Transport controls ────────────────────────────────────────────────────────
+
+async function handleControl(action) {
+  switch (action) {
+    case 'play':
+      await spotifyFetch('PUT', '/v1/me/player/play');
+      break;
+    case 'pause':
+      await spotifyFetch('PUT', '/v1/me/player/pause');
+      break;
+    case 'next':
+      cancelActiveFade();
+      if (state.crossfadeEnabled) {
+        // Fade out over fadeOutDuration ms, then skip — no seeking needed.
+        // Poll detects the new track and triggers fade-in automatically.
+        const fadeOutDur = state.fadeOutDuration;
+        LOG(`⏭ Manual next: fading out over ${fadeOutDur / 1000}s then skipping`);
+        startFadeOut(fadeOutDur);
+        setTimeout(() => {
+          spotifyFetch('POST', '/v1/me/player/next').catch(() => {});
+          forcePoll();
+        }, fadeOutDur);
+      } else {
+        await spotifyFetch('POST', '/v1/me/player/next');
+        forcePoll();
+      }
+      break;
+    case 'prev':
+      cancelActiveFade();
+      if (state.crossfadeEnabled) {
+        // Fade out over fadeOutDuration ms, then skip back.
+        const fadeOutDur = state.fadeOutDuration;
+        LOG(`⏮ Manual prev: fading out over ${fadeOutDur / 1000}s then skipping back`);
+        startFadeOut(fadeOutDur);
+        setTimeout(() => {
+          spotifyFetch('POST', '/v1/me/player/previous').catch(() => {});
+          forcePoll();
+        }, fadeOutDur);
+      } else {
+        await spotifyFetch('POST', '/v1/me/player/previous');
+        forcePoll();
+      }
+      break;
+  }
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+/** Triggered by popup's Test-fade button — fade out then fade in without skipping. */
+let testFadeActive = false;
+
+function testFade() {
+  // Second press while running cancels and restores volume.
+  if (state.isFadingOut || state.isFadingIn) {
+    testFadeActive = false; // prevent pending setTimeout from starting fade-in
+    const restore = state.preFadeVolume || state.volumePercent;
+    cancelActiveFade();
+    setVolume(restore).catch(() => {});
+    broadcast();
+    return;
+  }
+  if (!state.token) return; // need a token to write volume
+  LOG('🧪 Test fade — out:', state.fadeOutDuration / 1000 + 's, in:', state.fadeInDuration / 1000 + 's');
+  testFadeActive = true;
+  startFadeOut(state.fadeOutDuration);
+  // Wait for fade-out to finish (plus 500ms so the last async setVolume call can settle)
+  // then start fade-in only if the test wasn't cancelled mid-way.
+  setTimeout(() => {
+    if (testFadeActive) {
+      testFadeActive = false;
+      startFadeIn();
+    }
+  }, state.fadeOutDuration + 500);
+}
+
+function handleSetSetting(key, value) {
+  if (key === 'crossfadeEnabled') state.crossfadeEnabled = !!value;
+  if (key === 'fadeOutDuration')  state.fadeOutDuration  = Number(value);
+  if (key === 'fadeInDuration')   state.fadeInDuration   = Number(value);
+  if (key === 'minVolume')        state.minVolume        = Number(value);
+  if (key === 'fadeOutCurveName') state.fadeOutCurveName = String(value);
+  if (key === 'fadeInCurveName')  state.fadeInCurveName  = String(value);
+  persistSettings();
+  broadcast();
+}
+
+// ── OAuth flow (fallback) ─────────────────────────────────────────────────────────
+// Opens Spotify OAuth in a new tab. Spotify redirects to jam-ya.com/callback
+// where the React app exchanges the code and stores token in localStorage.
+// content-jamya.js then picks it up and sends it here via JAMYA_TOKEN.
+
+const SPOTIFY_CLIENT_ID = '535ef4e171b74750836388e73b3c20d7';
+const SPOTIFY_REDIRECT  = 'https://jam-ya.com/callback';
+const SPOTIFY_SCOPE     = 'user-read-playback-state user-modify-playback-state';
+
+function startOAuthFlow() {
+  const params = new URLSearchParams({
+    client_id:     SPOTIFY_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri:  SPOTIFY_REDIRECT,
+    scope:         SPOTIFY_SCOPE,
+  });
+  chrome.tabs.create({ url: `https://accounts.spotify.com/authorize?${params}` });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+chrome.runtime.onInstalled.addListener(async () => {
+  // Set sensible defaults on first install
+  const existing = await chrome.storage.local.get(['crossfadeEnabled', 'fadeOutDuration', 'fadeInDuration', 'minVolume', 'fadeOutCurveName', 'fadeInCurveName']);
+  const defaults = {};
+  if (existing.fadeOutDuration  === undefined) defaults.fadeOutDuration  = 5000;
+  if (existing.fadeInDuration   === undefined) defaults.fadeInDuration   = 5000;
+  if (existing.minVolume        === undefined) defaults.minVolume        = 3;
+  if (existing.fadeOutCurveName === undefined) defaults.fadeOutCurveName = 'scurve';
+  if (existing.fadeInCurveName  === undefined) defaults.fadeInCurveName  = 'scurve';
+  if (Object.keys(defaults).length) await chrome.storage.local.set(defaults);
+});
+
+// Service worker entry point — runs every time the worker starts or is woken up
+(async () => {
+  LOG('🚀 Service worker started');
+  await loadState();
+  ensureAlarm();
+  updateIcon();
+  startPolling();
+  LOG('⏰ Polling started');
+})();

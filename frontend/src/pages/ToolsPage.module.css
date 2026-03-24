@@ -1,0 +1,279 @@
+.toolsPage {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toolsHeader {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.toolsHeader h1 {
+  font-size: 2.5rem;
+  margin: 0 0 0.5rem 0;
+  background: linear-gradient(135deg, #3B7EA5 0%, #5B9EC5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.toolsHeader p {
+  font-size: 1.1rem;
+  color: #999;
+  margin: 0;
+}
+
+.toolsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.toolsSection h2 {
+  font-size: 1.5rem;
+  color: #e0e0e0;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #333;
+}
+
+.toolsList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+  gap: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .toolsList {
+    grid-template-columns: 1fr;
+  }
+}
+
+.toolCard {
+  background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.toolCard:hover {
+  border-color: #3B7EA5;
+  background: linear-gradient(135deg, #252525 0%, #333333 100%);
+  box-shadow: 0 0 20px rgba(59, 126, 165, 0.1);
+}
+
+.toolHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.toolTitleSection {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+}
+
+.toolIcon {
+  font-size: 2rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.toolInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.toolName {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #e0e0e0;
+}
+
+.toolDescription {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #999;
+  line-height: 1.4;
+}
+
+.toolActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.statusBadge {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #999;
+  white-space: nowrap;
+}
+
+.expandBtn {
+  background: none;
+  border: none;
+  color: #3B7EA5;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  transition: color 0.2s;
+}
+
+.expandBtn:hover {
+  color: #5B9EC5;
+}
+
+.toolDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #333;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}
+
+.toolDetails h4 {
+  margin: 0 0 0.75rem 0;
+  color: #e0e0e0;
+  font-size: 1.1rem;
+}
+
+.instructionsList {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #999;
+  line-height: 1.8;
+}
+
+.instructionsList li {
+  margin-bottom: 0.75rem;
+}
+
+.instructionsList code {
+  background: #1a1a1a;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  color: #3B7EA5;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.installButton {
+  display: flex;
+  gap: 1rem;
+}
+
+.downloadBtn {
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #3B7EA5 0%, #5B9EC5 100%);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  display: inline-block;
+}
+
+.downloadBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(59, 126, 165, 0.3);
+}
+
+.downloadBtn:active {
+  transform: translateY(0);
+}
+
+.features {
+  background: rgba(59, 126, 165, 0.1);
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 3px solid #3B7EA5;
+}
+
+.features h4 {
+  margin-top: 0;
+}
+
+.features ul {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #999;
+}
+
+.features li {
+  margin-bottom: 0.5rem;
+}
+
+.developersSection {
+  background: linear-gradient(135deg, rgba(59, 126, 165, 0.05) 0%, rgba(91, 158, 197, 0.05) 100%);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.developersSection h3 {
+  margin-top: 0;
+  color: #e0e0e0;
+  font-size: 1.3rem;
+}
+
+.developersSection p {
+  margin: 0;
+  color: #999;
+  line-height: 1.6;
+}
+
+.developersSection a {
+  color: #3B7EA5;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.developersSection a:hover {
+  color: #5B9EC5;
+}

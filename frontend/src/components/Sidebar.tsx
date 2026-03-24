@@ -12,6 +12,9 @@ interface Props {
   onLogout?: () => void;
   onCreatePlaylist?: (name: string, description: string, isPublic: boolean) => Promise<void>;
   onRefresh?: () => void;
+  currentView?: 'playlists' | 'tools';
+  onViewTools?: () => void;
+  onViewPlaylists?: () => void;
 }
 
 function CollapsibleGroup({
@@ -48,6 +51,9 @@ export function Sidebar({
   onLogout,
   onCreatePlaylist,
   onRefresh,
+  currentView,
+  onViewTools,
+  onViewPlaylists,
 }: Props) {
   // Always start expanded so new users immediately see their playlists.
   // On mobile we auto-collapse once they select a playlist (see renderItem).
@@ -272,6 +278,17 @@ export function Sidebar({
             </form>
           )}
         </div>
+        )}
+
+        {!collapsed && (
+          <div className={styles.toolsNav}>
+            <button 
+              className={`${styles.toolsBtn} ${currentView === 'tools' ? styles.active : ''}`}
+              onClick={onViewTools}
+            >
+              🔧 Tools
+            </button>
+          </div>
         )}
 
         {loading && !collapsed ? (

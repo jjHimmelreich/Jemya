@@ -10,17 +10,32 @@ sleep 1
 # ── Backend ─────────────────────────────────────────────────────────────────
 
 echo "🚀 Starting FastAPI backend on http://localhost:8000 ..."
-# Install backend deps using the same python3.11 used by the project
-python3.11 -m pip install -r backend/requirements.txt -q || true
+
+# Resolve Python: prefer .venv, fall back to python3
+if [ -f ".venv/bin/python" ]; then
+  PYTHON=".venv/bin/python"
+else
+  PYTHON="python3"
+fi
+
+# Create venv if missing
+if [ ! -f ".venv/bin/python" ]; then
+  echo "Creating virtual environment..."
+  $PYTHON -m venv .venv
+  PYTHON=".venv/bin/python"
+fi
+
+# Install all deps (root + backend)
+$PYTHON -m pip install -r requirements.txt -r backend/requirements.txt -q || true
 
 # Verify fastapi is available before starting
-python3.11 -c "import fastapi" 2>/dev/null || {
-  echo "ERROR: fastapi not installed. Run: python3.11 -m pip install fastapi uvicorn[standard]"
+$PYTHON -c "import fastapi" 2>/dev/null || {
+  echo "ERROR: fastapi not installed. Run: $PYTHON -m pip install fastapi uvicorn[standard]"
   exit 1
 }
 
 # Start uvicorn in background
-python3.11 -m uvicorn backend.main:app --reload --port 8000 &
+$PYTHON -m uvicorn backend.main:app --reload --port 8000 &
 BACKEND_PID=$!
 echo "Backend PID: $BACKEND_PID"
 

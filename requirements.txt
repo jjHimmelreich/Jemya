@@ -15,6 +15,9 @@ google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
 google-auth>=2.23.0
 
+# YouTube Music unofficial API (zero-quota search)
+ytmusicapi>=1.7.0
+
 # FastAPI backend (see also backend/requirements.txt)
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
