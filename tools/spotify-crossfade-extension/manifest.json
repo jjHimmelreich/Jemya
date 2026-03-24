@@ -5,7 +5,8 @@
   "description": "Smooth auto fade for Spotify Web Player. Pure Spotify API — no DOM tricks. Part of the Jam-ya toolkit.",
   "permissions": ["storage", "tabs", "alarms", "identity"],
   "host_permissions": [
-    "https://*.spotify.com/*",
+    "https://api.spotify.com/*",
+    "https://accounts.spotify.com/*",
     "https://jam-ya.com/*"
   ],
   "background": {
