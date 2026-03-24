@@ -1,5 +1,7 @@
 // Shared TypeScript types for Jam-ya frontend
 
+export type MusicSource = 'spotify' | 'youtube';
+
 export interface TokenInfo {
   access_token: string;
   token_type: string;
@@ -7,6 +9,8 @@ export interface TokenInfo {
   refresh_token?: string;
   expires_at?: number;
   scope?: string;
+  /** Which music service issued this token */
+  source?: MusicSource;
 }
 
 export interface UserInfo {
@@ -14,6 +18,7 @@ export interface UserInfo {
   display_name?: string;
   email?: string;
   images?: Array<{ url: string; width?: number; height?: number }>;
+  source?: MusicSource;
 }
 
 export interface PlaylistItem {

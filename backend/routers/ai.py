@@ -41,8 +41,10 @@ async def chat(body: ChatRequest) -> ChatResponse:
 
     # Add current playlist context if available
     if body.playlist_name and body.playlist_id:
+        source = body.token_info.get("source", "spotify") if body.token_info else "spotify"
+        platform = "YouTube" if source == "youtube" else "Spotify"
         context = (
-            f"The user is currently working on their Spotify playlist: "
+            f"The user is currently working on their {platform} playlist: "
             f"'{body.playlist_name}' (ID: {body.playlist_id}). "
             "Focus your suggestions on this playlist."
         )

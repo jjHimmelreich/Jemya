@@ -14,6 +14,10 @@
   position: relative;
 }
 
+.mainScrollable {
+  overflow-y: auto;
+}
+
 /* On mobile the sidebar is position:fixed (out of flow).
    Offset main by the collapsed sidebar strip width so nothing is hidden under it. */
 @media (max-width: 640px) {

@@ -56,11 +56,18 @@
   letter-spacing: 0.03em;
   transition: opacity 0.15s;
 }
+.loginBtn + .loginBtn {
+  margin-top: 12px;
+}
 .loginBtn:hover:not(:disabled) {
   opacity: 0.85;
 }
 .loginBtn:disabled {
   opacity: 0.5;
+}
+
+.loginBtnYt {
+  background: #c4302b;
 }
 
 .hint {

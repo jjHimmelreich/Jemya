@@ -22,21 +22,39 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start one persistent MCP server process for the lifetime of the app."""
-    manager = MCPManager()
+    """Start persistent MCP server processes for Spotify and YouTube."""
+    import configuration_manager as conf
+
+    spotify_manager = MCPManager(source="spotify")
     try:
-        await manager.connect()
-        app.state.mcp_manager = manager
-        logger.info("Persistent MCP server connected")
+        await spotify_manager.connect()
+        app.state.mcp_manager = spotify_manager
+        logger.info("Spotify MCP server connected")
     except Exception as e:
-        logger.error(f"Could not start persistent MCP server: {e}")
+        logger.error("Could not start Spotify MCP server: %s", e)
         app.state.mcp_manager = None
+
+    # Only start YouTube MCP if credentials are configured
+    app.state.yt_mcp_manager = None
+    if conf.YOUTUBE_CLIENT_ID:
+        yt_manager = MCPManager(source="youtube")
+        try:
+            await yt_manager.connect()
+            app.state.yt_mcp_manager = yt_manager
+            logger.info("YouTube MCP server connected")
+        except Exception as e:
+            logger.error("Could not start YouTube MCP server: %s", e)
+    else:
+        logger.info("YouTube credentials not configured — skipping YouTube MCP server")
 
     yield  # ── app is running ──
 
     if app.state.mcp_manager:
-        await manager.disconnect()
-        logger.info("Persistent MCP server disconnected")
+        await spotify_manager.disconnect()
+        logger.info("Spotify MCP server disconnected")
+    if app.state.yt_mcp_manager:
+        await app.state.yt_mcp_manager.disconnect()
+        logger.info("YouTube MCP server disconnected")
 
 
 app = FastAPI(

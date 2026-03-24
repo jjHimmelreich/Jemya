@@ -67,6 +67,9 @@ cert.pem
 key.pem
 *.pem
 
+# Search cache (file-based, migrated to DB later)
+cache/
+
 # Build artifacts and cache
 *.pyc
 .pytest_cache/

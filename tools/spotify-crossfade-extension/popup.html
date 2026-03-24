@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jam-ya Auto Fade</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 320px;
+      padding: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+      color: #fff;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .header h1 { font-size: 14px; font-weight: 700; }
+    .header .version { font-size: 10px; color: #444; }
+
+    /* ── Card ── */
+    .card {
+      background: rgba(59, 126, 165, 0.07);
+      border: 1px solid rgba(59, 126, 165, 0.18);
+      border-radius: 9px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+
+    /* ── Auth ── */
+    .auth-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .auth-status { font-size: 11px; flex: 1; }
+    .auth-status.ok   { color: #34d399; }
+    .auth-status.warn { color: #fbbf24; }
+    .auth-status.err  { color: #f87171; }
+
+    .connect-btn {
+      padding: 4px 10px;
+      background: #3B7EA5;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      white-space: nowrap;
+      display: none;
+    }
+    .connect-btn:hover { background: #4a94bf; }
+
+    .logout-btn {
+      padding: 4px 10px;
+      background: transparent;
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      white-space: nowrap;
+      display: none;
+      transition: background 0.15s;
+    }
+    .logout-btn:hover { background: rgba(248, 113, 113, 0.12); }
+
+    /* ── Now playing ── */
+    .track-name {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-name.empty { color: #555; font-style: italic; font-weight: 400; }
+    .artist-name {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Progress ── */
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: visible;
+      position: relative;
+      cursor: pointer;
+      transition: height 0.15s;
+    }
+    .progress-bar:hover { height: 6px; }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #3B7EA5;
+      border-radius: 2px;
+      transition: width 0.5s linear;
+      position: relative;
+      pointer-events: none;
+    }
+    .progress-fill::after {
+      content: '';
+      position: absolute;
+      right: -5px;
+      top: 50%;
+      transform: translateY(-50%) scale(0);
+      width: 10px;
+      height: 10px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.15s;
+      pointer-events: none;
+    }
+    .progress-bar:hover .progress-fill::after { transform: translateY(-50%) scale(1); }
+    .progress-bar.seeking .progress-fill {
+      transition: none; /* instant while dragging */
+    }
+    .progress-times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #444;
+      margin-top: 2px;
+    }
+
+    /* ── Transport ── */
+    .controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin-top: 9px;
+    }
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 6px;
+      border-radius: 5px;
+      line-height: 1;
+      transition: background 0.12s, color 0.12s;
+    }
+    .ctrl-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    #playPauseBtn { font-size: 20px; color: #fff; }
+    #playPauseBtn:hover { background: rgba(59,126,165,0.25); }
+
+    /* ── Fade status ── */
+    .fade-badge {
+      display: none;
+      margin-top: 6px;
+      text-align: center;
+      font-size: 10px;
+      color: #3B7EA5;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Settings ── */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 9px;
+    }
+    .setting-row:last-child { margin-bottom: 0; }
+    .setting-label { font-size: 12px; color: #ccc; }
+
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.25s;
+      border: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    .toggle-switch.on { background: #3B7EA5; border-color: #3B7EA5; }
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      transition: left 0.25s;
+    }
+    .toggle-switch.on::after { left: 20px; }
+
+    .duration-row { display: flex; align-items: center; gap: 8px; }
+    input[type='range'] {
+      flex: 1;
+      height: 4px;
+      background: rgba(59,126,165,0.3);
+      border-radius: 2px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input[type='range']::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px; height: 14px;
+      background: #3B7EA5;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    input[type='range']::-moz-range-thumb {
+      width: 14px; height: 14px;
+      background: #3B7EA5;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+    .duration-val {
+      min-width: 34px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #3B7EA5;
+      text-align: right;
+    }
+
+    /* ── Warnings ── */
+    .rate-warning {
+      display: none;
+      font-size: 10px;
+      color: #f59e0b;
+      text-align: center;
+      padding: 3px 0 1px;
+    }
+
+    /* ── Test-fade button ── */
+    .test-fade-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 6px 0;
+      background: rgba(59, 126, 165, 0.12);
+      color: #3B7EA5;
+      border: 1px solid rgba(59, 126, 165, 0.28);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      transition: background 0.15s, color 0.15s;
+    }
+    .test-fade-btn:hover { background: rgba(59, 126, 165, 0.25); }
+    .test-fade-btn.testing {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.35);
+      background: rgba(248, 113, 113, 0.07);
+    }
+
+    /* ── Settings gear button ── */
+    .gear-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid #2a2a2a;
+      color: #666;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 5px 7px;
+      border-radius: 7px;
+      line-height: 1;
+      transition: color 0.15s, background 0.15s, border-color 0.15s;
+    }
+    .gear-btn:hover { color: #fff; background: rgba(59,126,165,0.18); border-color: rgba(59,126,165,0.45); }
+    .gear-btn.active { color: #3B7EA5; background: rgba(59,126,165,0.12); border-color: rgba(59,126,165,0.4); }
+
+    /* ── Credentials panel ── */
+    .creds-panel {
+      display: none;
+      flex-direction: column;
+      gap: 7px;
+      margin-top: 4px;
+    }
+    .creds-panel.open { display: flex; }
+    .creds-label {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 2px;
+    }
+    .creds-input {
+      width: 100%;
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid #2a2a2a;
+      border-radius: 5px;
+      color: #ccc;
+      font-size: 11px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .creds-input:focus { border-color: #3B7EA5; }
+    .creds-input::placeholder { color: #3a3a3a; }
+    .creds-save-btn {
+      padding: 6px 0;
+      background: #3B7EA5;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+    .creds-save-btn:hover { background: #4a94bf; }
+    .creds-saved-msg {
+      font-size: 10px;
+      color: #34d399;
+      text-align: center;
+      display: none;
+      margin-top: 2px;
+    }
+    .creds-hint {
+      font-size: 10px;
+      color: #444;
+      line-height: 1.5;
+      margin-top: 2px;
+    }
+    .creds-hint a { color: #3B7EA5; text-decoration: none; }
+    .creds-hint a:hover { text-decoration: underline; }
+    .creds-dashboard-link { color: #444; font-size: 9px; text-decoration: none; }
+    .creds-dashboard-link:hover { color: #3B7EA5; }
+
+    /* ── Mode toggle ── */
+    .mode-toggle {
+      display: flex;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 5px 0;
+      background: none;
+      border: none;
+      color: #555;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .mode-btn.active {
+      background: #3B7EA5;
+      color: #fff;
+    }
+
+    /* ── Curve selects ── */
+    .curve-select {
+      flex: 1;
+      padding: 4px 8px;
+      background: rgba(59,126,165,0.1);
+      border: 1px solid rgba(59,126,165,0.22);
+      color: #ccc;
+      border-radius: 5px;
+      font-size: 11px;
+      outline: none;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .curve-select:focus { border-color: #3B7EA5; }
+    .curve-select option { background: #1a1a1a; color: #ccc; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Jam-ya Auto Fade</h1>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="auth-status err" id="authStatus" style="font-size:10px">Not connected</span>
+      <span class="version">v2.0</span>
+      <button class="gear-btn" id="gearBtn" title="Spotify credentials">⚙</button>
+    </div>
+  </div>
+
+  <!-- Spotify credentials / connection panel -->
+  <div class="card" id="credsCard" style="display:none">
+    <div class="creds-label" style="margin-bottom:6px">Connection Mode</div>
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="modeJamya">Jam-ya</button>
+      <button class="mode-btn" id="modeCustom">Custom App</button>
+    </div>
+
+    <!-- Jam-ya mode -->
+    <div id="jamyaPanel">
+      <div class="creds-hint" style="margin-top:4px">
+        Uses the built-in Jam-ya Spotify app.
+      </div>
+    </div>
+
+    <!-- Custom app credentials -->
+    <div id="customPanel" style="display:none">
+      <div class="creds-panel open">
+        <div>
+          <div class="creds-label">Client ID</div>
+          <input class="creds-input" id="credsClientId" type="text" placeholder="your Spotify Client ID" autocomplete="off" spellcheck="false">
+        </div>
+        <div>
+          <div class="creds-label">Client Secret</div>
+          <input class="creds-input" id="credsClientSecret" type="password" placeholder="••••••••••••••••••••••••••••••••" autocomplete="off">
+        </div>
+        <div>
+          <div class="creds-label">Redirect URI <a href="https://developer.spotify.com/dashboard" target="_blank" class="creds-dashboard-link">(add to your Spotify app)</a></div>
+          <input class="creds-input" id="credsRedirectUri" type="text" placeholder="https://…chromiumapp.org/" autocomplete="off" spellcheck="false" readonly>
+        </div>
+        <div class="creds-hint">
+          Create a free app at <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com</a>,
+          add the Redirect URI above, then paste your credentials here.
+        </div>
+      </div>
+    </div>
+
+    <!-- Action row: Save (custom mode only) + Connect / Logout -->
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="creds-save-btn" id="credsSaveBtn" style="display:none;flex:1">Save</button>
+      <button class="connect-btn" id="connectBtn" style="display:none;flex:1">Connect</button>
+      <button class="logout-btn" id="logoutBtn" style="display:none;flex:1">Logout</button>
+    </div>
+    <div class="creds-saved-msg" id="credsSavedMsg" style="margin-top:4px">✓ Saved</div>
+    <div id="connectErrorMsg" style="display:none;font-size:10px;color:#f87171;text-align:center;margin-top:4px"></div>
+  </div>
+
+  <!-- Now playing + controls -->
+  <div class="card">
+    <div class="track-name empty" id="trackName">Nothing playing</div>
+    <div class="artist-name" id="artistName"></div>
+
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-times">
+      <span id="progressCurrent">0:00</span>
+      <span id="progressTotal">0:00</span>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl-btn" id="prevBtn" title="Previous">⏮</button>
+      <button class="ctrl-btn" id="playPauseBtn" title="Play / Pause">▶</button>
+      <button class="ctrl-btn" id="nextBtn" title="Next">⏭</button>
+    </div>
+
+    <div class="duration-row" style="margin-top:8px">
+      <span style="font-size:11px;color:#aaa;min-width:28px">🔊</span>
+      <input type="range" id="volumeSlider" min="1" max="100" step="1" value="50">
+      <span class="duration-val" id="volumeValue">50%</span>
+    </div>
+
+    <div class="fade-badge" id="fadeBadge">⟳ crossfading…</div>
+    <div class="rate-warning" id="rateWarning">⚠ Rate limited — pausing volume writes</div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="setting-row">
+      <span class="setting-label">Auto Fade</span>
+      <div class="toggle-switch on" id="enableToggle"></div>
+    </div>
+    <div class="setting-row" style="margin-top:4px">
+      <span class="setting-label">Fade out</span>
+    </div>
+    <div class="duration-row">
+      <input type="range" id="fadeOutSlider" min="1000" max="10000" step="500" value="5000">
+      <span class="duration-val" id="fadeOutValue">5.0s</span>
+    </div>
+    <div class="duration-row" style="margin-top:5px">
+      <select class="curve-select" id="fadeOutCurveSelect">
+        <option value="scurve">S-curve (smooth)</option>
+        <option value="eqpower">Equal power</option>
+        <option value="linear">Linear</option>
+        <option value="logarithmic">Logarithmic (fast start)</option>
+        <option value="exponential">Exponential (slow start)</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Fade in</span>
+    </div>
+    <div class="duration-row">
+      <input type="range" id="fadeInSlider" min="1000" max="10000" step="500" value="5000">
+      <span class="duration-val" id="fadeInValue">5.0s</span>
+    </div>
+    <div class="duration-row" style="margin-top:5px">
+      <select class="curve-select" id="fadeInCurveSelect">
+        <option value="scurve">S-curve (smooth)</option>
+        <option value="eqpower">Equal power</option>
+        <option value="linear">Linear</option>
+        <option value="logarithmic">Logarithmic (fast start)</option>
+        <option value="exponential">Exponential (slow start)</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Min volume</span>
+    </div>
+    <div class="duration-row">
+      <input type="range" id="minVolumeSlider" min="1" max="20" step="1" value="3">
+      <span class="duration-val" id="minVolumeValue">3%</span>
+    </div>
+    <!-- Curve visualizer -->
+    <canvas id="curveCanvas" width="280" height="52"
+      style="width:100%;margin-top:8px;border-radius:5px;display:block"></canvas>
+    <button class="test-fade-btn" id="testFadeBtn">⏵ Test fade</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

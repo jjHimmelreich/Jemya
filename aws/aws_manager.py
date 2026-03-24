@@ -1253,6 +1253,9 @@ echo "User data script completed" > /var/log/user-data.log
                 'SPOTIFY_CLIENT_ID',
                 'SPOTIFY_CLIENT_SECRET', 
                 'SPOTIFY_REDIRECT_URI',
+                'YOUTUBE_CLIENT_ID',
+                'YOUTUBE_CLIENT_SECRET',
+                'YOUTUBE_REDIRECT_URI',
                 'OPENAI_API_KEY',
                 'ENVIRONMENT'
             ]

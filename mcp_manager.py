@@ -1,6 +1,7 @@
 """
-MCP Manager - Integration layer between FastAPI backend and Spotify MCP Server
-Handles MCP client connection and converts tools for OpenAI function calling
+MCP Manager - Integration layer between FastAPI backend and MCP Servers
+Handles MCP client connection and converts tools for OpenAI function calling.
+Supports multiple music sources (Spotify, YouTube) via the `source` constructor arg.
 """
 import asyncio
 import json
@@ -17,19 +18,31 @@ logger = logging.getLogger(__name__)
 
 
 class MCPManager:
-    """Manager for MCP client connection and tool execution"""
+    """Manager for MCP client connection and tool execution.
+
+    Args:
+        source: 'spotify' (default) or 'youtube'. Selects which MCP server subprocess to run.
+        access_token: Optional default token (can be overridden per-call).
+    """
+
+    _SERVER_SCRIPTS = {
+        "spotify": "spotify_mcp_server.py",
+        "youtube": "youtube_mcp_server.py",
+    }
     
-    def __init__(self, access_token: Optional[str] = None):
+    def __init__(self, access_token: Optional[str] = None, source: str = "spotify"):
         self.access_token = access_token
+        self.source = source
         self.session: Optional[ClientSession] = None
         self.client_context = None
         self.tools_cache: Optional[List[Dict]] = None
         # Serialise all MCP calls: the stdio transport is a single process
         # that cannot handle concurrent requests from different users.
         self._lock = asyncio.Lock()
+        script = self._SERVER_SCRIPTS.get(source, "spotify_mcp_server.py")
         self._server_params = StdioServerParameters(
             command="python3.11",
-            args=["spotify_mcp_server.py"],
+            args=[script],
             env=os.environ.copy()
         )
     
@@ -74,8 +87,10 @@ class MCPManager:
                 self.session = None
                 self.client_context = None
                 logger.info("Disconnected from MCP server")
-            except Exception as e:
+            except BaseException as e:  # CancelledError is BaseException, not Exception
                 logger.error(f"Error disconnecting from MCP server: {e}")
+                self.session = None
+                self.client_context = None
     
     async def get_tools_for_openai(self) -> List[Dict]:
         """Convert MCP tools to OpenAI function calling format"""

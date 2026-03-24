@@ -9,5 +9,12 @@ SPOTIFY_REDIRECT_URI = "http://localhost:5555/callback"
 # OpenAI Configuration  
 OPENAI_API_KEY = "your_openai_api_key_here"
 
+# YouTube / Google OAuth Configuration
+# Create credentials at https://console.cloud.google.com → APIs & Services → Credentials
+# Enable YouTube Data API v3 in your project
+YOUTUBE_CLIENT_ID = "your_google_client_id_here"
+YOUTUBE_CLIENT_SECRET = "your_google_client_secret_here"
+YOUTUBE_REDIRECT_URI = "http://localhost:5555/callback/youtube"
+
 # Environment
 ENVIRONMENT = "development"  # development or production

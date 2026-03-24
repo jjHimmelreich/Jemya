@@ -9,9 +9,13 @@ interface Props {
   loading?: boolean;
   userId?: string;
   userDisplayName?: string;
+  authSource?: 'spotify' | 'youtube';
   onLogout?: () => void;
   onCreatePlaylist?: (name: string, description: string, isPublic: boolean) => Promise<void>;
   onRefresh?: () => void;
+  currentView?: 'playlists' | 'tools';
+  onViewTools?: () => void;
+  onViewPlaylists?: () => void;
 }
 
 function CollapsibleGroup({
@@ -45,9 +49,13 @@ export function Sidebar({
   loading,
   userId,
   userDisplayName,
+  authSource,
   onLogout,
   onCreatePlaylist,
   onRefresh,
+  currentView,
+  onViewTools,
+  onViewPlaylists,
 }: Props) {
   // Always start expanded so new users immediately see their playlists.
   // On mobile we auto-collapse once they select a playlist (see renderItem).
@@ -171,7 +179,14 @@ export function Sidebar({
           </div>
           {!collapsed && userDisplayName && (
             <div className={styles.user}>
-              <span>{userDisplayName}</span>
+              <span className={styles.userInfo}>
+                {authSource === 'youtube' ? (
+                  <img src="/youtube-icon.svg" alt="YouTube" className={styles.authSourceIcon} title="Connected via YouTube" />
+                ) : (
+                  <img src="/spotify-icon.svg" alt="Spotify" className={styles.authSourceIcon} title="Connected via Spotify" />
+                )}
+                {userDisplayName}
+              </span>
               <button className={styles.logoutBtn} onClick={onLogout}>
                 Log out
               </button>
@@ -300,6 +315,25 @@ export function Sidebar({
             )}
           </div>
         ) : null}
+
+        <nav className={styles.bottomNav}>
+          <button
+            className={`${styles.bottomNavBtn} ${currentView !== 'tools' ? styles.bottomNavActive : ''}`}
+            onClick={onViewPlaylists}
+            title="Playlists"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+            {!collapsed && <span>Playlists</span>}
+          </button>
+          <button
+            className={`${styles.bottomNavBtn} ${currentView === 'tools' ? styles.bottomNavActive : ''}`}
+            onClick={onViewTools}
+            title="Tools"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+            {!collapsed && <span>Tools</span>}
+          </button>
+        </nav>
       </aside>
     </>
   );
