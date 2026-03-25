@@ -331,6 +331,10 @@ jobs:
           -e SPOTIFY_CLIENT_SECRET=test \
           -e SPOTIFY_REDIRECT_URI=https://test.com/callback \
           -e OPENAI_API_KEY=test \
+          -e YOUTUBE_CLIENT_ID=test \
+          -e YOUTUBE_CLIENT_SECRET=test \
+          -e YOUTUBE_REDIRECT_URI=https://test.com/callback/youtube \
+          -e AWS_REGION=eu-west-1 \
           -e ENVIRONMENT=production \
           "$IMAGE_NAME"
 

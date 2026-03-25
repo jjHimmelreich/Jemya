@@ -4,21 +4,23 @@ Uses conf.py for local development, environment variables for production
 """
 import os
 
+_MISSING = object()  # sentinel — distinguishes "no default" from default=None
 
-def get_config(key: str, default: str = None):
+
+def get_config(key: str, default=_MISSING):
     """Get configuration value from environment or conf.py fallback"""
     # First try environment variable
     value = os.getenv(key)
     if value:
         return value
-    
+
     # Fallback to conf.py for local development
     try:
         import conf
-        return getattr(conf, key, default)
+        return getattr(conf, key, default if default is not _MISSING else None)
     except ImportError:
         # conf.py doesn't exist, must be production
-        if default is None:
+        if default is _MISSING:
             raise ValueError(f"Configuration {key} not found in environment variables")
         return default
 
