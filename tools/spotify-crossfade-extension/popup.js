@@ -325,7 +325,9 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
   btn.textContent = 'Connecting…';
   btn.disabled    = true;
 
-  const res = await send({ type: 'START_OAUTH' });
+  // Tell the background which flow to use based on the currently visible panel.
+  const mode = customPanel.style.display !== 'none' ? 'pkce' : 'jamya';
+  const res = await send({ type: 'START_OAUTH', mode });
 
   // For Jam-ya mode the popup closes naturally when Chrome opens the new tab.
   // For Custom App (PKCE) the popup stays open; res carries success/failure.
@@ -363,12 +365,9 @@ async function setMode(mode) {
   customPanel.style.display = isCustom ? 'block' : 'none';
   document.getElementById('credsSaveBtn').style.display = isCustom ? 'inline-block' : 'none';
   document.getElementById('connectErrorMsg').style.display = 'none';
+  // Persist mode only — keep credentials in storage so switching back to Custom App
+  // restores them without the user having to re-enter them.
   await chrome.storage.local.set({ connectionMode: mode });
-  // Switching to Jam-ya clears stored custom credentials from background
-  if (!isCustom) {
-    await chrome.storage.local.remove(['spotifyClientId', 'spotifyClientSecret']);
-    await send({ type: 'SET_CREDENTIALS', clientId: null, clientSecret: null });
-  }
 }
 
 modeJamya.addEventListener('click',  () => setMode('jamya'));

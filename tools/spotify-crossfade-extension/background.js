@@ -115,6 +115,34 @@ async function getValidToken() {
   if (!isAlive) LOG('🔄 Token stale/missing — source:', state.tokenSource, '| expiry in:', Math.round((state.tokenExpiry - Date.now()) / 1000) + 's');
   if (isAlive) return state.token;
 
+  // Try refreshing pkce token using stored refresh_token + user's client credentials
+  if (state.tokenSource === 'pkce' && state.tokenInfo?.refresh_token && state.spotifyClientId) {
+    try {
+      const body = new URLSearchParams({
+        grant_type:    'refresh_token',
+        refresh_token: state.tokenInfo.refresh_token,
+        client_id:     state.spotifyClientId,
+        client_secret: state.spotifyClientSecret || '',
+      });
+      const res = await fetch('https://accounts.spotify.com/api/token', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        state.token       = data.access_token;
+        state.tokenExpiry = Date.now() + (data.expires_in ?? 3600) * 1000;
+        if (data.refresh_token) state.tokenInfo = { ...state.tokenInfo, refresh_token: data.refresh_token };
+        await persistToken();
+        LOG('✅ Token refreshed (pkce)');
+        broadcast();
+        return state.token;
+      }
+      WARN('❌ pkce token refresh failed:', res.status);
+    } catch (e) { WARN('❌ pkce token refresh error:', e.message); }
+  }
+
   // Try refreshing if token came from jam-ya.com backend (has refresh_token)
   if (state.tokenSource === 'jamya' && state.tokenInfo?.refresh_token) {
     try {
@@ -509,7 +537,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       break;
 
     case 'START_OAUTH':
-      startOAuthFlow(sendResponse);
+      startOAuthFlow(sendResponse, msg.mode ?? 'jamya');
       return true; // async response
 
     case 'SET_CREDENTIALS':
@@ -662,8 +690,8 @@ const SPOTIFY_CLIENT_ID = '535ef4e171b74750836388e73b3c20d7';
 const SPOTIFY_REDIRECT  = 'https://jam-ya.com/callback';
 const SPOTIFY_SCOPE     = 'user-read-playback-state user-modify-playback-state';
 
-function startOAuthFlow(sendResponse) {
-  if (state.spotifyClientId) {
+function startOAuthFlow(sendResponse, mode) {  // mode: 'pkce' | 'jamya'
+  if (mode === 'pkce' && state.spotifyClientId) {
     // ── Standalone mode ──────────────────────────────────────────────────────
     const clientId    = state.spotifyClientId;
     const redirectUri = chrome.identity.getRedirectURL();
