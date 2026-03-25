@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * popup.js — Jam-ya Auto Fade popup controller
+ * popup.js — Jam-ya Spotify Auto Fade popup controller
  *
  * Requests current state from background on open, then listens for
  * STATE_UPDATE broadcasts. Extrapolates progress locally between updates.

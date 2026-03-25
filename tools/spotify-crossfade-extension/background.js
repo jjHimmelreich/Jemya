@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * background.js — Jam-ya Auto Fade service worker
+ * background.js — Jam-ya Spotify Auto Fade service worker
  *
  * Owns three concerns:
  *   1. Token management  – stores Bearer token; supports Jam-ya OAuth and
