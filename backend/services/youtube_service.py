@@ -179,7 +179,7 @@ class YouTubeService:
         # Use refresh_token as stable user identifier (doesn't change on token refresh).
         # Fall back to access_token if no refresh_token present.
         stable = token_info.get("refresh_token") or token_info.get("access_token", "")
-        return hashlib.md5(stable.encode()).hexdigest()
+        return hashlib.md5(stable.encode(), usedforsecurity=False).hexdigest()
 
     @staticmethod
     def _playlists_cache_get(key: str) -> Optional[List[Dict[str, Any]]]:
@@ -417,7 +417,7 @@ class YouTubeService:
 
     @staticmethod
     def _cache_key(query: str) -> str:
-        return hashlib.md5(query.lower().strip().encode()).hexdigest()
+        return hashlib.md5(query.lower().strip().encode(), usedforsecurity=False).hexdigest()
 
     @staticmethod
     def _cache_get(key: str) -> Optional[Dict[str, Any]]:
