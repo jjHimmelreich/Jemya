@@ -198,7 +198,7 @@ export function AppPage({ tokenInfo, userInfo, onLogout, ensureValidToken }: Pro
 
     // AI gave additions only — keep all existing tracks, append new ones
     const aiNames = new Set(
-      aiTracks.map((t: Record<string, string>) => (t.track_name ?? '').toLowerCase().trim()),
+      (aiTracks as Record<string, string>[]).map(t => (t.track_name ?? '').toLowerCase().trim()),
     );
     const existing = liveTracks
       .filter(t => !aiNames.has(t.name.toLowerCase().trim()))

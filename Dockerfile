@@ -10,7 +10,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: Python / FastAPI runtime ────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.13.12-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
