@@ -21,11 +21,10 @@ const state = {
   token:       null,   // Raw Bearer token for Spotify API calls
   tokenExpiry: 0,      // Unix ms — estimated expiry
   tokenSource: null,   // 'jamya' | 'pkce' | null
-  tokenInfo:   null,   // Full token_info object (jamya source only, for refresh)
+  tokenInfo:   null,   // Full token_info object (used for token refresh in both jamya and pkce modes)
 
   // User-provided credentials (standalone / PKCE mode)
   spotifyClientId:     null,
-  spotifyClientSecret: null,
 
   // Playback (last known)
   trackId:     null,
@@ -67,7 +66,7 @@ const WARN = (...args) => console.warn('[Jemya/bg]', ...args);
 async function loadState() {
   const s = await chrome.storage.local.get([
     'token', 'tokenExpiry', 'tokenSource', 'tokenInfo',
-    'spotifyClientId', 'spotifyClientSecret',
+    'spotifyClientId',
     'crossfadeEnabled', 'fadeOutDuration', 'fadeInDuration', 'minVolume',
     'fadeOutCurveName', 'fadeInCurveName', 'preFadeVolume',
   ]);
@@ -76,7 +75,6 @@ async function loadState() {
   if (s.tokenSource   !== undefined) state.tokenSource   = s.tokenSource;
   if (s.tokenInfo     !== undefined) state.tokenInfo     = s.tokenInfo;
   if (s.spotifyClientId     !== undefined) state.spotifyClientId     = s.spotifyClientId;
-  if (s.spotifyClientSecret !== undefined) state.spotifyClientSecret = s.spotifyClientSecret;
   if (s.crossfadeEnabled  !== undefined) state.crossfadeEnabled  = s.crossfadeEnabled;
   if (s.fadeOutDuration   !== undefined) state.fadeOutDuration   = s.fadeOutDuration;
   if (s.fadeInDuration    !== undefined) state.fadeInDuration    = s.fadeInDuration;
@@ -115,14 +113,13 @@ async function getValidToken() {
   if (!isAlive) LOG('🔄 Token stale/missing — source:', state.tokenSource, '| expiry in:', Math.round((state.tokenExpiry - Date.now()) / 1000) + 's');
   if (isAlive) return state.token;
 
-  // Try refreshing pkce token using stored refresh_token + user's client credentials
+  // Try refreshing pkce token — pure PKCE needs only client_id (no secret)
   if (state.tokenSource === 'pkce' && state.tokenInfo?.refresh_token && state.spotifyClientId) {
     try {
       const body = new URLSearchParams({
         grant_type:    'refresh_token',
         refresh_token: state.tokenInfo.refresh_token,
         client_id:     state.spotifyClientId,
-        client_secret: state.spotifyClientSecret || '',
       });
       const res = await fetch('https://accounts.spotify.com/api/token', {
         method:  'POST',
@@ -402,8 +399,8 @@ async function pollPlayback() {
   // poll never misses the window. The fade always runs for the full halfFade
   // duration regardless of when the poll actually fired within the window.
   const fadeOutDur = state.fadeOutDuration;
+  const remaining  = state.durationMs - state.progressMs;
   if (state.crossfadeEnabled && state.isPlaying && !state.isFadingOut && !state.isFadingIn) {
-    const remaining = state.durationMs - state.progressMs;
     if (remaining > 200 && remaining <= fadeOutDur + state.pollIntervalMs) {
       LOG(`⏳ Fade window: ${Math.round(remaining / 1000 * 10) / 10}s remaining → fading out over ${fadeOutDur / 1000}s`);
       startFadeOut(fadeOutDur);
@@ -411,7 +408,6 @@ async function pollPlayback() {
   }
 
   // ── Adaptive poll rate: tighten up near the fade window ───────────────────
-  const remaining  = state.durationMs - state.progressMs;
   const wantFast   = state.crossfadeEnabled && remaining <= fadeOutDur + 8000;
   state.pollIntervalMs = wantFast ? 1000 : 3000;
   broadcast();
@@ -542,10 +538,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     case 'SET_CREDENTIALS':
       state.spotifyClientId     = msg.clientId     || null;
-      state.spotifyClientSecret = msg.clientSecret || null;
       chrome.storage.local.set({
         spotifyClientId:     state.spotifyClientId,
-        spotifyClientSecret: state.spotifyClientSecret,
       });
       LOG('🔑 Credentials updated — clientId:', state.spotifyClientId?.slice(0, 8) + '…');
       sendResponse({ ok: true });
@@ -677,12 +671,26 @@ function handleSetSetting(key, value) {
   broadcast();
 }
 
+// ── PKCE helpers ─────────────────────────────────────────────────────────────
+
+function generateCodeVerifier() {
+  const arr = new Uint8Array(48);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function generateCodeChallenge(verifier) {
+  const data    = new TextEncoder().encode(verifier);
+  const digest  = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
 // ── OAuth flow ────────────────────────────────────────────────────────────────
 // Two modes:
-//   Standalone: user provided their own Client ID + Secret → use
-//               chrome.identity.launchWebAuthFlow which intercepts the
-//               chromiumapp.org redirect and returns the code directly.
-//               We exchange the code for a token here, no server needed.
+//   Standalone: user provided their own Client ID. Uses real PKCE (no secret)
+//               via chrome.identity.launchWebAuthFlow.
 //   Jam-ya:     open a tab to jam-ya.com/callback; content-jamya.js picks
 //               up the stored token and forwards it via JAMYA_TOKEN.
 
@@ -692,68 +700,74 @@ const SPOTIFY_SCOPE     = 'user-read-playback-state user-modify-playback-state';
 
 function startOAuthFlow(sendResponse, mode) {  // mode: 'pkce' | 'jamya'
   if (mode === 'pkce' && state.spotifyClientId) {
-    // ── Standalone mode ──────────────────────────────────────────────────────
+    // ── Standalone / pure-PKCE mode ──────────────────────────────────────────
     const clientId    = state.spotifyClientId;
     const redirectUri = chrome.identity.getRedirectURL();
-    const params = new URLSearchParams({
-      client_id:     clientId,
-      response_type: 'code',
-      redirect_uri:  redirectUri,
-      scope:         SPOTIFY_SCOPE,
-    });
-    const authUrl = `https://accounts.spotify.com/authorize?${params}`;
+    const verifier    = generateCodeVerifier();
 
-    chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true }, async (responseUrl) => {
-      if (chrome.runtime.lastError || !responseUrl) {
-        const msg = chrome.runtime.lastError?.message || 'OAuth cancelled';
-        WARN('⚠ OAuth cancelled or failed:', msg);
-        sendResponse?.({ ok: false, error: msg });
-        return;
-      }
-      // Extract authorization code from the redirect URL
-      const url  = new URL(responseUrl);
-      const code = url.searchParams.get('code');
-      if (!code) {
-        WARN('⚠ No code in OAuth redirect:', responseUrl);
-        sendResponse?.({ ok: false, error: 'No authorisation code returned' });
-        return;
-      }
-      // Exchange code for token directly with Spotify
-      try {
-        const body = new URLSearchParams({
-          grant_type:   'authorization_code',
-          code,
-          redirect_uri: redirectUri,
-          client_id:    clientId,
-          client_secret: state.spotifyClientSecret || '',
-        });
-        const res = await fetch('https://accounts.spotify.com/api/token', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body:    body.toString(),
-        });
-        if (!res.ok) {
-          const err = await res.text();
-          WARN('⚠ Token exchange failed:', res.status, err);
-          sendResponse?.({ ok: false, error: `Token exchange failed (${res.status})` });
+    generateCodeChallenge(verifier).then(challenge => {
+      const params = new URLSearchParams({
+        client_id:             clientId,
+        response_type:         'code',
+        redirect_uri:          redirectUri,
+        scope:                 SPOTIFY_SCOPE,
+        code_challenge_method: 'S256',
+        code_challenge:        challenge,
+      });
+      const authUrl = `https://accounts.spotify.com/authorize?${params}`;
+
+      chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true }, async (responseUrl) => {
+        if (chrome.runtime.lastError || !responseUrl) {
+          const msg = chrome.runtime.lastError?.message || 'OAuth cancelled';
+          WARN('⚠ OAuth cancelled or failed:', msg);
+          sendResponse?.({ ok: false, error: msg });
           return;
         }
-        const data = await res.json();
-        state.token       = data.access_token;
-        state.tokenExpiry = Date.now() + (data.expires_in ?? 3600) * 1000;
-        state.tokenSource = 'pkce';
-        state.tokenInfo   = data.refresh_token ? { refresh_token: data.refresh_token } : null;
-        LOG('🔑 Token stored (standalone):', state.token.slice(0, 12) + '…');
-        persistToken();
-        startPolling();
-        updateIcon();
-        broadcast();
-        sendResponse?.({ ok: true });
-      } catch (e) {
-        WARN('⚠ Token exchange error:', e.message);
-        sendResponse?.({ ok: false, error: e.message });
-      }
+        const url  = new URL(responseUrl);
+        const code = url.searchParams.get('code');
+        if (!code) {
+          WARN('⚠ No code in OAuth redirect:', responseUrl);
+          sendResponse?.({ ok: false, error: 'No authorisation code returned' });
+          return;
+        }
+        // Exchange code using PKCE verifier — no client_secret needed
+        try {
+          const body = new URLSearchParams({
+            grant_type:    'authorization_code',
+            code,
+            redirect_uri:  redirectUri,
+            client_id:     clientId,
+            code_verifier: verifier,
+          });
+          const res = await fetch('https://accounts.spotify.com/api/token', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body:    body.toString(),
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            WARN('⚠ Token exchange failed:', res.status, err);
+            sendResponse?.({ ok: false, error: `Token exchange failed (${res.status})` });
+            return;
+          }
+          const data = await res.json();
+          state.token       = data.access_token;
+          state.tokenExpiry = Date.now() + (data.expires_in ?? 3600) * 1000;
+          state.tokenSource = 'pkce';
+          state.tokenInfo   = data.refresh_token ? { refresh_token: data.refresh_token } : null;
+          LOG('🔑 Token stored (pkce):', state.token.slice(0, 12) + '…');
+          persistToken();
+          startPolling();
+          updateIcon();
+          broadcast();
+          sendResponse?.({ ok: true });
+        } catch (e) {
+          WARN('⚠ Token exchange error:', e.message);
+          sendResponse?.({ ok: false, error: e.message });
+        }
+      });
     });
+    return; // async
   } else {
     // ── Jam-ya mode ──────────────────────────────────────────────────────────
     const params = new URLSearchParams({
@@ -771,7 +785,7 @@ function startOAuthFlow(sendResponse, mode) {  // mode: 'pkce' | 'jamya'
 
 chrome.runtime.onInstalled.addListener(async () => {
   // Set sensible defaults on first install
-  const existing = await chrome.storage.local.get(['crossfadeEnabled', 'fadeOutDuration', 'fadeInDuration', 'minVolume', 'fadeOutCurveName', 'fadeInCurveName']);
+  const existing = await chrome.storage.local.get(['fadeOutDuration', 'fadeInDuration', 'minVolume', 'fadeOutCurveName', 'fadeInCurveName']);
   const defaults = {};
   if (existing.fadeOutDuration  === undefined) defaults.fadeOutDuration  = 5000;
   if (existing.fadeInDuration   === undefined) defaults.fadeInDuration   = 5000;

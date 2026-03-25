@@ -396,7 +396,7 @@ async function populateRedirectUri() {
 
 // Load saved credentials and mode into inputs
 async function loadCredentials() {
-  const stored = await chrome.storage.local.get(['spotifyClientId', 'spotifyClientSecret', 'connectionMode']);
+  const stored = await chrome.storage.local.get(['spotifyClientId', 'connectionMode']);
   const isCustom = stored.connectionMode === 'custom';
   modeJamya.classList.toggle('active', !isCustom);
   modeCustom.classList.toggle('active', isCustom);
@@ -404,18 +404,16 @@ async function loadCredentials() {
   customPanel.style.display = isCustom ? 'block' : 'none';
   document.getElementById('credsSaveBtn').style.display = isCustom ? 'inline-block' : 'none';
   if (stored.spotifyClientId)     document.getElementById('credsClientId').value     = stored.spotifyClientId;
-  if (stored.spotifyClientSecret) document.getElementById('credsClientSecret').value = stored.spotifyClientSecret;
 }
 
 credsSaveBtn.addEventListener('click', async () => {
-  const clientId     = document.getElementById('credsClientId').value.trim();
-  const clientSecret = document.getElementById('credsClientSecret').value.trim();
+  const clientId = document.getElementById('credsClientId').value.trim();
   if (!clientId) {
     document.getElementById('credsClientId').focus();
     return;
   }
-  await chrome.storage.local.set({ spotifyClientId: clientId, spotifyClientSecret: clientSecret });
-  await send({ type: 'SET_CREDENTIALS', clientId, clientSecret });
+  await chrome.storage.local.set({ spotifyClientId: clientId });
+  await send({ type: 'SET_CREDENTIALS', clientId });
   credsSavedMsg.style.display = 'block';
   setTimeout(() => { credsSavedMsg.style.display = 'none'; }, 3000);
 });

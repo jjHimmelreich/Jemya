@@ -50,10 +50,11 @@
     Token refresh calls are made directly to <code>jam-ya.com/auth/refresh</code>.
   </li>
   <li>
-    <strong>Custom App mode:</strong> You supply your own Spotify Client ID and Client
-    Secret. These credentials are stored locally in <code>chrome.storage.local</code> on
-    your device only. The OAuth flow uses <code>chrome.identity.launchWebAuthFlow</code>
-    and the resulting token is stored locally on your device only.
+    <strong>Custom App mode:</strong> You supply your own Spotify Client ID.
+    This credential is stored locally in <code>chrome.storage.local</code> on
+    your device only. The OAuth flow uses standard PKCE (no client secret required)
+    via <code>chrome.identity.launchWebAuthFlow</code> and the resulting token
+    is stored locally on your device only.
   </li>
 </ul>
 
@@ -84,7 +85,7 @@
 </p>
 <ul>
   <li>Spotify access token and its expiry time</li>
-  <li>Spotify Client ID and Client Secret (Custom App mode only, if provided by you)</li>
+  <li>Spotify Client ID (Custom App mode only, if provided by you)</li>
   <li>Extension settings: crossfade duration, fade curves, minimum volume, enabled state</li>
   <li>Connection mode preference (Jam-ya or Custom App)</li>
 </ul>
