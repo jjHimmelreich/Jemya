@@ -50,7 +50,7 @@
     Token refresh calls are made directly to <code>jam-ya.com/auth/refresh</code>.
   </li>
   <li>
-    <strong>Custom App mode:</strong> You supply your own Spotify Client ID.
+    <strong>Your Spotify App mode:</strong> You supply your own Spotify Client ID.
     This credential is stored locally in <code>chrome.storage.local</code> on
     your device only. The OAuth flow uses standard PKCE (no client secret required)
     via <code>chrome.identity.launchWebAuthFlow</code> and the resulting token
@@ -85,9 +85,9 @@
 </p>
 <ul>
   <li>Spotify access token and its expiry time</li>
-  <li>Spotify Client ID (Custom App mode only, if provided by you)</li>
+  <li>Spotify Client ID (Your Spotify App mode only, if provided by you)</li>
   <li>Extension settings: crossfade duration, fade curves, minimum volume, enabled state</li>
-  <li>Connection mode preference (Jam-ya or Custom App)</li>
+  <li>Connection mode preference (Jam-Ya App or Your Spotify App)</li>
 </ul>
 <p>This data is retained until you log out within the Extension or uninstall the Extension.</p>
 
@@ -96,9 +96,9 @@
   <li><strong>storage</strong> — Save settings and tokens locally on your device.</li>
   <li><strong>alarms</strong> — Schedule periodic polling of playback state.</li>
   <li><strong>tabs</strong> — Detect when the Spotify Web Player tab is active to keep the service worker alive.</li>
-  <li><strong>identity</strong> — Perform the OAuth flow via <code>chrome.identity.launchWebAuthFlow</code> in Custom App mode.</li>
+  <li><strong>identity</strong> — Perform the OAuth flow via <code>chrome.identity.launchWebAuthFlow</code> in Your Spotify App mode.</li>
   <li><strong>https://api.spotify.com/*</strong> — Call the Spotify Web API to read playback state and control volume/playback.</li>
-  <li><strong>https://accounts.spotify.com/*</strong> — Exchange an OAuth authorisation code for an access token (Custom App mode).</li>
+  <li><strong>https://accounts.spotify.com/*</strong> — Exchange an OAuth authorisation code for an access token (Your Spotify App mode).</li>
   <li><strong>https://jam-ya.com/*</strong> — Read the Spotify token from localStorage on jam-ya.com and refresh it when needed.</li>
   <li><strong>Content script on open.spotify.com</strong> — Maintain a keepalive connection to the background service worker while the Spotify Web Player tab is open.</li>
 </ul>

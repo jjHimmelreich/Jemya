@@ -36,7 +36,7 @@
 
     /* ── Auth ── */
     .auth-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .auth-status { font-size: 11px; flex: 1; }
+    .auth-status { font-size: 11px; flex: 1; white-space: nowrap; }
     .auth-status.ok   { color: #34d399; }
     .auth-status.warn { color: #fbbf24; }
     .auth-status.err  { color: #f87171; }
@@ -166,6 +166,25 @@
       letter-spacing: 0.04em;
     }
 
+    /* Locked (disconnected) state */
+    .locked { opacity: 0.25; pointer-events: none; user-select: none; }
+    #setupHint {
+      display: none;
+      text-align: center;
+      padding: 6px 0 4px;
+    }
+    #setupHint .setup-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #ccc;
+      margin-bottom: 3px;
+    }
+    #setupHint .setup-sub {
+      font-size: 11px;
+      color: #666;
+    }
+    #setupHint .setup-sub strong { color: #f87171; }
+
     /* ── Settings ── */
     .setting-row {
       display: flex;
@@ -199,7 +218,9 @@
     }
     .toggle-switch.on::after { left: 20px; }
 
-    .duration-row { display: flex; align-items: center; gap: 8px; }
+    .duration-row { display: flex; align-items: center; gap: 6px; }
+    .fade-block { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+    .fade-block .setting-label { margin-bottom: 0; }
     input[type='range'] {
       flex: 1;
       height: 4px;
@@ -225,11 +246,10 @@
       border: none;
     }
     .duration-val {
-      min-width: 34px;
       font-size: 12px;
       font-weight: 600;
       color: #3B7EA5;
-      text-align: right;
+      white-space: nowrap;
     }
 
     /* ── Warnings ── */
@@ -277,6 +297,12 @@
     }
     .gear-btn:hover { color: #fff; background: rgba(59,126,165,0.18); border-color: rgba(59,126,165,0.45); }
     .gear-btn.active { color: #3B7EA5; background: rgba(59,126,165,0.12); border-color: rgba(59,126,165,0.4); }
+    .gear-btn.disconnected { color: #f87171; border-color: rgba(248,113,113,0.55); animation: gear-pulse 2s ease-in-out infinite; }
+    .gear-btn.disconnected:hover { color: #fca5a5; background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.75); animation: none; }
+    @keyframes gear-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); }
+      50%       { box-shadow: 0 0 0 5px rgba(248,113,113,0.28); }
+    }
 
     /* ── Credentials panel ── */
     .creds-panel {
@@ -348,6 +374,10 @@
     }
     .mode-btn {
       flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
       padding: 5px 0;
       background: none;
       border: none;
@@ -360,11 +390,17 @@
       background: #3B7EA5;
       color: #fff;
     }
+    .mode-btn.connected::before {
+      content: '\25CF'; /* ● */
+      font-size: 16px;
+      line-height: 1;
+      color: #4ade80;
+    }
 
     /* ── Curve selects ── */
+    .duration-row input[type=range] { flex: 1; }
     .curve-select {
-      flex: 1;
-      padding: 4px 8px;
+      padding: 3px 6px;
       background: rgba(59,126,165,0.1);
       border: 1px solid rgba(59,126,165,0.22);
       color: #ccc;
@@ -374,6 +410,7 @@
       cursor: pointer;
       -webkit-appearance: none;
       appearance: none;
+      max-width: 100px;
     }
     .curve-select:focus { border-color: #3B7EA5; }
     .curve-select option { background: #1a1a1a; color: #ccc; }
@@ -383,7 +420,7 @@
 
   <!-- Header -->
   <div class="header">
-    <h1>Jam-ya Spotify Auto Fade</h1>
+    <h1>Jam-Ya Auto Fade</h1>
     <div style="display:flex;align-items:center;gap:6px">
       <span class="auth-status err" id="authStatus" style="font-size:10px">Not connected</span>
       <span class="version">v2.0</span>
@@ -395,18 +432,18 @@
   <div class="card" id="credsCard" style="display:none">
     <div class="creds-label" style="margin-bottom:6px">Connection Mode</div>
     <div class="mode-toggle">
-      <button class="mode-btn active" id="modeJamya">Jam-ya</button>
-      <button class="mode-btn" id="modeCustom">Custom App</button>
+      <button class="mode-btn active" id="modeJamya">Jam-Ya App</button>
+      <button class="mode-btn" id="modeCustom">Your Spotify App</button>
     </div>
 
     <!-- Jam-ya mode -->
     <div id="jamyaPanel">
       <div class="creds-hint" style="margin-top:4px">
-        Uses the built-in Jam-ya Spotify app.
+        Uses the built-in Jam-Ya App Spotify connection.
       </div>
     </div>
 
-    <!-- Custom app credentials -->
+    <!-- Your Spotify App credentials -->
     <div id="customPanel" style="display:none">
       <div class="creds-panel open">
         <div>
@@ -436,6 +473,10 @@
 
   <!-- Now playing + controls -->
   <div class="card">
+    <div id="setupHint">
+      <div class="setup-title">Not connected to Spotify</div>
+      <div class="setup-sub">Tap the <strong>⚙</strong> button in the top-right to get started</div>
+    </div>
     <div class="track-name empty" id="trackName">Nothing playing</div>
     <div class="artist-name" id="artistName"></div>
 
@@ -469,44 +510,41 @@
       <span class="setting-label">Auto Fade</span>
       <div class="toggle-switch on" id="enableToggle"></div>
     </div>
-    <div class="setting-row" style="margin-top:4px">
+    <div id="connectNotice" style="display:none;font-size:10px;color:#f59e0b;text-align:center;padding:3px 0 2px">⚠ Connect to Spotify first</div>
+    <div class="fade-block">
       <span class="setting-label">Fade out</span>
+      <div class="duration-row">
+        <input type="range" id="fadeOutSlider" min="1000" max="9500" step="500" value="5000">
+        <span class="duration-val" id="fadeOutValue">5.0s</span>
+        <select class="curve-select" id="fadeOutCurveSelect">
+          <option value="scurve">S-curve</option>
+          <option value="eqpower">Equal power</option>
+          <option value="linear">Linear</option>
+          <option value="logarithmic">Logarithmic</option>
+          <option value="exponential">Exponential</option>
+        </select>
+      </div>
     </div>
-    <div class="duration-row">
-      <input type="range" id="fadeOutSlider" min="1000" max="10000" step="500" value="5000">
-      <span class="duration-val" id="fadeOutValue">5.0s</span>
-    </div>
-    <div class="duration-row" style="margin-top:5px">
-      <select class="curve-select" id="fadeOutCurveSelect">
-        <option value="scurve">S-curve (smooth)</option>
-        <option value="eqpower">Equal power</option>
-        <option value="linear">Linear</option>
-        <option value="logarithmic">Logarithmic (fast start)</option>
-        <option value="exponential">Exponential (slow start)</option>
-      </select>
-    </div>
-    <div class="setting-row">
+    <div class="fade-block">
       <span class="setting-label">Fade in</span>
+      <div class="duration-row">
+        <input type="range" id="fadeInSlider" min="1000" max="9500" step="500" value="5000">
+        <span class="duration-val" id="fadeInValue">5.0s</span>
+        <select class="curve-select" id="fadeInCurveSelect">
+          <option value="scurve">S-curve</option>
+          <option value="eqpower">Equal power</option>
+          <option value="linear">Linear</option>
+          <option value="logarithmic">Logarithmic</option>
+          <option value="exponential">Exponential</option>
+        </select>
+      </div>
     </div>
-    <div class="duration-row">
-      <input type="range" id="fadeInSlider" min="1000" max="10000" step="500" value="5000">
-      <span class="duration-val" id="fadeInValue">5.0s</span>
-    </div>
-    <div class="duration-row" style="margin-top:5px">
-      <select class="curve-select" id="fadeInCurveSelect">
-        <option value="scurve">S-curve (smooth)</option>
-        <option value="eqpower">Equal power</option>
-        <option value="linear">Linear</option>
-        <option value="logarithmic">Logarithmic (fast start)</option>
-        <option value="exponential">Exponential (slow start)</option>
-      </select>
-    </div>
-    <div class="setting-row">
+    <div class="fade-block">
       <span class="setting-label">Min volume</span>
-    </div>
-    <div class="duration-row">
-      <input type="range" id="minVolumeSlider" min="1" max="20" step="1" value="3">
-      <span class="duration-val" id="minVolumeValue">3%</span>
+      <div class="duration-row">
+        <input type="range" id="minVolumeSlider" min="1" max="20" step="1" value="3">
+        <span class="duration-val" id="minVolumeValue">3%</span>
+      </div>
     </div>
     <!-- Curve visualizer -->
     <canvas id="curveCanvas" width="280" height="52"
