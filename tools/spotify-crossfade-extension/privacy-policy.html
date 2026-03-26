@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy — Jam-ya Auto Fade</title>
+  <title>Privacy Policy — Jam-ya Spotify Auto Fade</title>
   <style>
     body {
       max-width: 760px;
@@ -25,11 +25,11 @@
 <body>
 
 <h1>Privacy Policy</h1>
-<p class="meta">Extension: <strong>Jam-ya Auto Fade</strong> &nbsp;·&nbsp; Last updated: March 25, 2026</p>
+<p class="meta">Extension: <strong>Jam-ya Spotify Auto Fade</strong> &nbsp;·&nbsp; Last updated: March 25, 2026</p>
 
 <h2>1. Overview</h2>
 <p>
-  Jam-ya Auto Fade ("the Extension") is a Chrome browser extension that provides smooth
+  Jam-ya Spotify Auto Fade ("the Extension") is a Chrome browser extension that provides smooth
   crossfade volume control for the Spotify Web Player. This Privacy Policy explains what
   data the Extension accesses, how it is used, and what is never collected.
 </p>
@@ -50,10 +50,11 @@
     Token refresh calls are made directly to <code>jam-ya.com/auth/refresh</code>.
   </li>
   <li>
-    <strong>Custom App mode:</strong> You supply your own Spotify Client ID and Client
-    Secret. These credentials are stored locally in <code>chrome.storage.local</code> on
-    your device only. The OAuth flow uses <code>chrome.identity.launchWebAuthFlow</code>
-    and the resulting token is stored locally on your device only.
+    <strong>Your Spotify App mode:</strong> You supply your own Spotify Client ID.
+    This credential is stored locally in <code>chrome.storage.local</code> on
+    your device only. The OAuth flow uses standard PKCE (no client secret required)
+    via <code>chrome.identity.launchWebAuthFlow</code> and the resulting token
+    is stored locally on your device only.
   </li>
 </ul>
 
@@ -84,9 +85,9 @@
 </p>
 <ul>
   <li>Spotify access token and its expiry time</li>
-  <li>Spotify Client ID and Client Secret (Custom App mode only, if provided by you)</li>
+  <li>Spotify Client ID (Your Spotify App mode only, if provided by you)</li>
   <li>Extension settings: crossfade duration, fade curves, minimum volume, enabled state</li>
-  <li>Connection mode preference (Jam-ya or Custom App)</li>
+  <li>Connection mode preference (Jam-Ya App or Your Spotify App)</li>
 </ul>
 <p>This data is retained until you log out within the Extension or uninstall the Extension.</p>
 
@@ -95,9 +96,9 @@
   <li><strong>storage</strong> — Save settings and tokens locally on your device.</li>
   <li><strong>alarms</strong> — Schedule periodic polling of playback state.</li>
   <li><strong>tabs</strong> — Detect when the Spotify Web Player tab is active to keep the service worker alive.</li>
-  <li><strong>identity</strong> — Perform the OAuth flow via <code>chrome.identity.launchWebAuthFlow</code> in Custom App mode.</li>
+  <li><strong>identity</strong> — Perform the OAuth flow via <code>chrome.identity.launchWebAuthFlow</code> in Your Spotify App mode.</li>
   <li><strong>https://api.spotify.com/*</strong> — Call the Spotify Web API to read playback state and control volume/playback.</li>
-  <li><strong>https://accounts.spotify.com/*</strong> — Exchange an OAuth authorisation code for an access token (Custom App mode).</li>
+  <li><strong>https://accounts.spotify.com/*</strong> — Exchange an OAuth authorisation code for an access token (Your Spotify App mode).</li>
   <li><strong>https://jam-ya.com/*</strong> — Read the Spotify token from localStorage on jam-ya.com and refresh it when needed.</li>
   <li><strong>Content script on open.spotify.com</strong> — Maintain a keepalive connection to the background service worker while the Spotify Web Player tab is open.</li>
 </ul>

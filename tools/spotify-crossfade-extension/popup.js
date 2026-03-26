@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * popup.js — Jam-ya Auto Fade popup controller
+ * popup.js — Jam-ya Spotify Auto Fade popup controller
  *
  * Requests current state from background on open, then listens for
  * STATE_UPDATE broadcasts. Extrapolates progress locally between updates.
@@ -50,18 +50,37 @@ function render(s) {
   const authEl     = document.getElementById('authStatus');
   const connectBtn = document.getElementById('connectBtn');
   if (s.hasToken) {
-    authEl.textContent = s.tokenSource === 'pkce'
-      ? '✓ Custom App'
-      : '✓ Jam-ya';
+    authEl.textContent = '✓ Connected';
     authEl.className   = 'auth-status ok';
     connectBtn.style.display = 'none';
     document.getElementById('logoutBtn').style.display = 'inline-block';
+    document.getElementById('gearBtn').classList.remove('disconnected');
+    const isJamya = s.tokenSource !== 'pkce';
+    document.getElementById('modeJamya').textContent  = 'Jam-Ya App';
+    document.getElementById('modeCustom').textContent = 'Your Spotify App';
+    document.getElementById('modeJamya').classList.toggle('connected',  isJamya);
+    document.getElementById('modeCustom').classList.toggle('connected', !isJamya);
   } else {
     authEl.textContent = 'Not connected';
     authEl.className   = 'auth-status err';
     connectBtn.style.display = 'inline-block';
     document.getElementById('logoutBtn').style.display = 'none';
+    document.getElementById('gearBtn').classList.add('disconnected');
+    document.getElementById('modeJamya').textContent  = 'Jam-Ya App';
+    document.getElementById('modeCustom').textContent = 'Your Spotify App';
+    document.getElementById('modeJamya').classList.remove('connected');
+    document.getElementById('modeCustom').classList.remove('connected');
   }
+
+  // Connected / disconnected UI state
+  const isConnected = !!s.hasToken;
+  document.getElementById('setupHint').style.display     = isConnected ? 'none' : 'block';
+  document.getElementById('trackName').style.display     = isConnected ? ''     : 'none';
+  document.getElementById('artistName').style.display    = isConnected ? ''     : 'none';
+  document.getElementById('progressBar').classList.toggle('locked',     !isConnected);
+  document.querySelector('.progress-times').classList.toggle('locked',   !isConnected);
+  document.querySelector('.controls').classList.toggle('locked',         !isConnected);
+  document.getElementById('volumeSlider').parentElement.classList.toggle('locked', !isConnected);
 
   // Track
   const trackEl  = document.getElementById('trackName');
@@ -88,7 +107,7 @@ function render(s) {
 
   // Settings
   document.getElementById('enableToggle')
-    .classList.toggle('on', s.crossfadeEnabled);
+    .classList.toggle('on', s.hasToken ? (s.crossfadeEnabled ?? false) : false);
   const fadeOut = s.fadeOutDuration ?? 5000;
   document.getElementById('fadeOutSlider').value = fadeOut;
   document.getElementById('fadeOutValue').textContent = `${(fadeOut / 1000).toFixed(1)}s`;
@@ -274,7 +293,13 @@ document.getElementById('prevBtn').addEventListener('click', () => {
   send({ type: 'CONTROL', action: 'prev' });
 });
 document.getElementById('enableToggle').addEventListener('click', () => {
-  send({ type: 'SET_SETTING', key: 'crossfadeEnabled', value: !(lastState?.crossfadeEnabled ?? true) });
+  if (!lastState?.hasToken) {
+    const notice = document.getElementById('connectNotice');
+    notice.style.display = 'block';
+    setTimeout(() => { notice.style.display = 'none'; }, 3000);
+    return;
+  }
+  send({ type: 'SET_SETTING', key: 'crossfadeEnabled', value: !(lastState?.crossfadeEnabled ?? false) });
 });
 document.getElementById('fadeOutCurveSelect').addEventListener('change', (e) => {
   if (lastState) lastState.fadeOutCurveName = e.target.value;
@@ -322,13 +347,27 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
   const btn      = document.getElementById('connectBtn');
   const errorMsg = document.getElementById('connectErrorMsg');
   errorMsg.style.display = 'none';
+
+  // Tell the background which flow to use based on the currently visible panel.
+  const mode = customPanel.style.display !== 'none' ? 'pkce' : 'jamya';
+
+  // Validate Client ID before starting PKCE flow
+  if (mode === 'pkce') {
+    const clientId = document.getElementById('credsClientId').value.trim();
+    if (!clientId) {
+      errorMsg.textContent = 'Please enter your Spotify Client ID first';
+      errorMsg.style.display = 'block';
+      document.getElementById('credsClientId').focus();
+      return;
+    }
+  }
+
   btn.textContent = 'Connecting…';
   btn.disabled    = true;
-
-  const res = await send({ type: 'START_OAUTH' });
+  const res = await send({ type: 'START_OAUTH', mode });
 
   // For Jam-ya mode the popup closes naturally when Chrome opens the new tab.
-  // For Custom App (PKCE) the popup stays open; res carries success/failure.
+  // For Your Spotify App (PKCE) the popup stays open; res carries success/failure.
   btn.textContent = 'Connect';
   btn.disabled    = false;
 
@@ -349,7 +388,7 @@ const credsCard    = document.getElementById('credsCard');
 const credsSaveBtn  = document.getElementById('credsSaveBtn');
 const credsSavedMsg = document.getElementById('credsSavedMsg');
 
-// Mode toggle (Jam-ya vs Custom App)
+// Mode toggle (Jam-Ya App vs Your Spotify App)
 const modeJamya   = document.getElementById('modeJamya');
 const modeCustom  = document.getElementById('modeCustom');
 const jamyaPanel  = document.getElementById('jamyaPanel');
@@ -363,12 +402,9 @@ async function setMode(mode) {
   customPanel.style.display = isCustom ? 'block' : 'none';
   document.getElementById('credsSaveBtn').style.display = isCustom ? 'inline-block' : 'none';
   document.getElementById('connectErrorMsg').style.display = 'none';
+  // Persist mode only — keep credentials in storage so switching back to Your Spotify App
+  // restores them without the user having to re-enter them.
   await chrome.storage.local.set({ connectionMode: mode });
-  // Switching to Jam-ya clears stored custom credentials from background
-  if (!isCustom) {
-    await chrome.storage.local.remove(['spotifyClientId', 'spotifyClientSecret']);
-    await send({ type: 'SET_CREDENTIALS', clientId: null, clientSecret: null });
-  }
 }
 
 modeJamya.addEventListener('click',  () => setMode('jamya'));
@@ -397,7 +433,7 @@ async function populateRedirectUri() {
 
 // Load saved credentials and mode into inputs
 async function loadCredentials() {
-  const stored = await chrome.storage.local.get(['spotifyClientId', 'spotifyClientSecret', 'connectionMode']);
+  const stored = await chrome.storage.local.get(['spotifyClientId', 'connectionMode']);
   const isCustom = stored.connectionMode === 'custom';
   modeJamya.classList.toggle('active', !isCustom);
   modeCustom.classList.toggle('active', isCustom);
@@ -405,18 +441,16 @@ async function loadCredentials() {
   customPanel.style.display = isCustom ? 'block' : 'none';
   document.getElementById('credsSaveBtn').style.display = isCustom ? 'inline-block' : 'none';
   if (stored.spotifyClientId)     document.getElementById('credsClientId').value     = stored.spotifyClientId;
-  if (stored.spotifyClientSecret) document.getElementById('credsClientSecret').value = stored.spotifyClientSecret;
 }
 
 credsSaveBtn.addEventListener('click', async () => {
-  const clientId     = document.getElementById('credsClientId').value.trim();
-  const clientSecret = document.getElementById('credsClientSecret').value.trim();
+  const clientId = document.getElementById('credsClientId').value.trim();
   if (!clientId) {
     document.getElementById('credsClientId').focus();
     return;
   }
-  await chrome.storage.local.set({ spotifyClientId: clientId, spotifyClientSecret: clientSecret });
-  await send({ type: 'SET_CREDENTIALS', clientId, clientSecret });
+  await chrome.storage.local.set({ spotifyClientId: clientId });
+  await send({ type: 'SET_CREDENTIALS', clientId });
   credsSavedMsg.style.display = 'block';
   setTimeout(() => { credsSavedMsg.style.display = 'none'; }, 3000);
 });
