@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jam-ya Spotify Auto Fade</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 320px;
+      padding: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Detached window mode - fixed height for queue layout */
+    body.detached-window {
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .header h1 { font-size: 14px; font-weight: 700; }
+    .header-right { display: flex; align-items: center; gap: 8px; }
+    .auth-status { font-size: 10px; }
+    .auth-status.ok   { color: #34d399; }
+    .auth-status.err  { color: #f87171; }
+    .version { font-size: 10px; color: #444; }
+
+    /* ── Section headers ── */
+    .section-header {
+      display: none;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: rgba(59, 126, 165, 0.07);
+      border: 1px solid rgba(59, 126, 165, 0.18);
+      border-radius: 9px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      flex-shrink: 0;
+    }
+
+    /* ── Queue ── */
+    .queue-card {
+      background: rgba(59, 126, 165, 0.07);
+      border: 1px solid rgba(59, 126, 165, 0.18);
+      border-radius: 9px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      flex: 1;
+      min-height: 0;
+      display: none; /* Hidden by default */
+      flex-direction: column;
+    }
+    @media (min-height: 650px) {
+      .queue-card {
+        display: flex; /* Show when window is tall enough */
+      }
+    }
+    .queue-header {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      margin-bottom: 8px;
+      flex-shrink: 0;
+    }
+    .queue-list {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .queue-item {
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 5px;
+      border-left: 2px solid rgba(59,126,165,0.4);
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+    }
+    .queue-item::after {
+      content: attr(data-position);
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 9px;
+      color: #444;
+      font-weight: 600;
+    }
+    .queue-item:hover {
+      background: rgba(59,126,165,0.12);
+    }
+    .queue-item.current {
+      background: rgba(59,126,165,0.15);
+      border-left-color: #3B7EA5;
+      cursor: default;
+    }
+    .queue-item.current:hover {
+      background: rgba(59,126,165,0.15);
+    }
+    .queue-item.not-clickable {
+      opacity: 0.4;
+      cursor: default;
+    }
+    .queue-item.not-clickable:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    .queue-track-name {
+      font-size: 11px;
+      color: #ccc;
+      font-weight: 500;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .queue-artist-name {
+      font-size: 10px;
+      color: #666;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .queue-empty {
+      font-size: 10px;
+      color: #666;
+      text-align: center;
+      padding: 20px 10px;
+    }
+    .queue-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .queue-list::-webkit-scrollbar-track {
+      background: rgba(255,255,255,0.03);
+      border-radius: 3px;
+    }
+    .queue-list::-webkit-scrollbar-thumb {
+      background: rgba(59,126,165,0.3);
+      border-radius: 3px;
+    }
+    .queue-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(59,126,165,0.5);
+    }
+
+    /* ── Tabs ── */
+    .tab-nav {
+      display: flex;
+      gap: 0;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 8px 0;
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 11px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab-btn.active {
+      color: #3B7EA5;
+      border-bottom-color: #3B7EA5;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    /* ── Connection (in tab) ── */
+    .auth-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+    .auth-status-text { font-size: 12px; flex: 1; color: #888; }
+    .connect-btn, .logout-btn {
+      padding: 5px 12px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+    .connect-btn {
+      background: #3B7EA5;
+      color: #fff;
+    }
+    .connect-btn:hover { background: #4a94bf; }
+    .logout-btn {
+      background: transparent;
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.35);
+    }
+    .logout-btn:hover { background: rgba(248, 113, 113, 0.12); }
+
+    .mode-toggle {
+      display: none;
+    }
+    .mode-btn {
+      display: none;
+    }
+    .mode-btn.active {
+      display: none;
+    }
+    .mode-btn.connected::before {
+      display: none;
+    }
+    
+    .mode-link {
+      font-size: 10px;
+      color: #666;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .mode-link:hover {
+      color: #3B7EA5;
+    }
+
+    .creds-label {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 3px;
+    }
+    .creds-input {
+      width: 100%;
+      padding: 6px 8px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid #2a2a2a;
+      border-radius: 5px;
+      color: #ccc;
+      font-size: 11px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 8px;
+    }
+    .creds-input:focus { border-color: #3B7EA5; }
+    .creds-input::placeholder { color: #3a3a3a; }
+    .creds-hint {
+      font-size: 10px;
+      color: #555;
+      line-height: 1.5;
+      margin-top: 4px;
+    }
+    .advanced-section {
+      margin-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 12px;
+    }
+    .creds-hint a { color: #3B7EA5; text-decoration: none; }
+    .creds-hint a:hover { text-decoration: underline; }
+    .creds-saved-msg {
+      font-size: 10px;
+      color: #34d399;
+      text-align: center;
+      display: none;
+      margin-top: 6px;
+    }
+    #connectErrorMsg {
+      display: none;
+      font-size: 10px;
+      color: #f87171;
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    /* ── Player ── */
+    .track-name {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-name.empty { color: #555; font-style: italic; font-weight: 400; }
+    .artist-name {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .device-info {
+      font-size: 10px;
+      color: #666;
+      margin-top: 4px;
+      display: none;
+    }
+    .device-info.visible { display: block; }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      margin-top: 8px;
+      position: relative;
+      cursor: pointer;
+      transition: height 0.15s;
+    }
+    .progress-bar:hover { height: 6px; }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #3B7EA5;
+      border-radius: 2px;
+      transition: width 0.5s linear;
+      position: relative;
+    }
+    .progress-fill::after {
+      content: '';
+      position: absolute;
+      right: -5px;
+      top: 50%;
+      transform: translateY(-50%) scale(0);
+      width: 10px;
+      height: 10px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.15s;
+    }
+    .progress-bar:hover .progress-fill::after { transform: translateY(-50%) scale(1); }
+    .progress-bar.seeking .progress-fill { transition: none; }
+    .progress-times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #444;
+      margin-top: 2px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin-top: 9px;
+    }
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 6px;
+      border-radius: 5px;
+      line-height: 1;
+      transition: background 0.12s, color 0.12s;
+    }
+    .ctrl-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    #playPauseBtn { font-size: 20px; color: #fff; }
+    #playPauseBtn:hover { background: rgba(59,126,165,0.25); }
+
+    .fade-badge {
+      display: none;
+      margin-top: 6px;
+      text-align: center;
+      font-size: 10px;
+      color: #3B7EA5;
+      letter-spacing: 0.04em;
+    }
+
+    .rate-warning {
+      display: none;
+      font-size: 10px;
+      color: #f59e0b;
+      text-align: center;
+      padding: 3px 0 1px;
+    }
+
+    .locked { opacity: 0.25; pointer-events: none; user-select: none; }
+    #setupHint {
+      display: none;
+      text-align: center;
+      padding: 6px 0 4px;
+    }
+    #setupHint .setup-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #ccc;
+      margin-bottom: 3px;
+    }
+    #setupHint .setup-sub {
+      font-size: 11px;
+      color: #666;
+    }
+
+    /* ── Settings ── */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 9px;
+    }
+    .setting-row:last-child { margin-bottom: 0; }
+    .setting-label { font-size: 12px; color: #ccc; }
+
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.25s;
+      border: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    .toggle-switch.on { background: #3B7EA5; border-color: #3B7EA5; }
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      transition: left 0.25s;
+    }
+    .toggle-switch.on::after { left: 20px; }
+
+    .duration-row { display: flex; align-items: center; gap: 6px; }
+    .fade-block { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+    .fade-block .setting-label { margin-bottom: 0; }
+    input[type='range'] {
+      flex: 1;
+      height: 4px;
+      background: rgba(59,126,165,0.3);
+      border-radius: 2px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input[type='range']::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px; height: 14px;
+      background: #3B7EA5;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    input[type='range']::-moz-range-thumb {
+      width: 14px; height: 14px;
+      background: #3B7EA5;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+    .duration-val {
+      font-size: 12px;
+      font-weight: 600;
+      color: #3B7EA5;
+      white-space: nowrap;
+    }
+
+    .test-fade-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 6px 0;
+      background: rgba(59, 126, 165, 0.12);
+      color: #3B7EA5;
+      border: 1px solid rgba(59, 126, 165, 0.28);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      transition: background 0.15s, color 0.15s;
+    }
+    .test-fade-btn:hover { background: rgba(59, 126, 165, 0.25); }
+    .test-fade-btn.testing {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.35);
+      background: rgba(248, 113, 113, 0.07);
+    }
+
+    .curve-select {
+      padding: 3px 6px;
+      background: rgba(59,126,165,0.1);
+      border: 1px solid rgba(59,126,165,0.22);
+      color: #ccc;
+      border-radius: 5px;
+      font-size: 11px;
+      outline: none;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      max-width: 100px;
+    }
+    .curve-select:focus { border-color: #3B7EA5; }
+    .curve-select option { background: #1a1a1a; color: #ccc; }
+    
+    .detach-btn {
+      padding: 4px 8px;
+      background: rgba(59,126,165,0.15);
+      border: 1px solid rgba(59,126,165,0.25);
+      border-radius: 4px;
+      color: #3B7EA5;
+      font-size: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-left: 8px;
+    }
+    .detach-btn:hover {
+      background: rgba(59,126,165,0.25);
+      border-color: #3B7EA5;
+    }
+    
+    /* ── Footer ── */
+    .footer {
+      padding: 8px 12px;
+      text-align: center;
+      background: rgba(59,126,165,0.08);
+      border: 1px solid rgba(59,126,165,0.2);
+      border-radius: 6px;
+      font-size: 10px;
+      color: #999;
+      transition: all 0.2s;
+    }
+    .footer:hover {
+      background: rgba(59,126,165,0.12);
+      border-color: rgba(59,126,165,0.35);
+    }
+    .footer a {
+      color: #3B7EA5;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.15s;
+      margin-left: 4px;
+    }
+    .footer a:hover {
+      color: #4a94bf;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Jam-Ya Auto Fade</h1>
+    <div class="header-right">
+      <button class="detach-btn" id="detachBtn" title="Open in separate window">⇱ Detach</button>
+      <span class="auth-status err" id="authStatus">✗</span>
+      <span class="version">v2.3</span>
+    </div>
+  </div>
+
+  <!-- Player Section -->
+  <div class="card">
+    <div id="setupHint">
+      <div class="setup-title">Not connected to Spotify</div>
+      <div class="setup-sub">Configure connection in <strong>Settings → Connection</strong> below</div>
+    </div>
+    <div class="track-name empty" id="trackName">Nothing playing</div>
+    <div class="artist-name" id="artistName"></div>
+    <div class="device-info" id="deviceInfo">📡 <span id="deviceName"></span></div>
+
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-times">
+      <span id="progressCurrent">0:00</span>
+      <span id="progressTotal">0:00</span>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl-btn" id="prevBtn" title="Previous">⏮</button>
+      <button class="ctrl-btn" id="playPauseBtn" title="Play / Pause">▶</button>
+      <button class="ctrl-btn" id="nextBtn" title="Next">⏭</button>
+    </div>
+
+    <div class="duration-row" style="margin-top:8px">
+      <span style="font-size:11px;color:#aaa;min-width:28px">🔊</span>
+      <input type="range" id="volumeSlider" min="1" max="100" step="1" value="50">
+      <span class="duration-val" id="volumeValue">50%</span>
+    </div>
+
+    <div class="fade-badge" id="fadeBadge">⟳ crossfading…</div>
+    <div class="rate-warning" id="rateWarning">⚠ Rate limited — pausing volume writes</div>
+    <div class="rate-warning" id="deviceWarning">⚠ Controls disabled — not on Web Player</div>
+  </div>
+
+  <!-- Queue -->
+  <div class="queue-card" id="queueCard">
+    <div class="queue-header">Queue</div>
+    <div class="queue-list" id="queueList">
+      <div class="queue-empty">Queue will appear here when window is enlarged</div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="autofade">Auto Fade</button>
+      <button class="tab-btn" data-tab="connection">Connection</button>
+    </div>
+
+    <!-- Auto Fade Tab -->
+    <div class="tab-content active" id="tab-autofade">
+      <div class="setting-row">
+        <span class="setting-label">Enable auto fade</span>
+        <div class="toggle-switch on" id="enableToggle"></div>
+      </div>
+      <div id="connectNotice" style="display:none;font-size:10px;color:#f59e0b;text-align:center;padding:3px 0 6px">⚠ Connect first</div>
+      
+      <div class="fade-block">
+        <span class="setting-label">Fade out</span>
+        <div class="duration-row">
+          <input type="range" id="fadeOutSlider" min="1000" max="9500" step="500" value="2500">
+          <span class="duration-val" id="fadeOutValue">2.5s</span>
+          <select class="curve-select" id="fadeOutCurveSelect">
+            <option value="scurve">S-curve</option>
+            <option value="eqpower">Equal power</option>
+            <option value="linear">Linear</option>
+            <option value="logarithmic">Logarithmic</option>
+            <option value="exponential">Exponential</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="fade-block">
+        <span class="setting-label">Fade in</span>
+        <div class="duration-row">
+          <input type="range" id="fadeInSlider" min="1000" max="9500" step="500" value="4500">
+          <span class="duration-val" id="fadeInValue">4.5s</span>
+          <select class="curve-select" id="fadeInCurveSelect">
+            <option value="scurve">S-curve</option>
+            <option value="eqpower">Equal power</option>
+            <option value="linear">Linear</option>
+            <option value="logarithmic">Logarithmic</option>
+            <option value="exponential">Exponential</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="fade-block">
+        <span class="setting-label">Min volume</span>
+        <div class="duration-row">
+          <input type="range" id="minVolumeSlider" min="1" max="20" step="1" value="15">
+          <span class="duration-val" id="minVolumeValue">15%</span>
+        </div>
+      </div>
+      
+      <canvas id="curveCanvas" width="280" height="52"
+        style="width:100%;margin-top:8px;border-radius:5px;display:block"></canvas>
+      
+      <button class="test-fade-btn" id="testFadeBtn">Test fade</button>
+    </div>
+
+    <!-- Connection Tab -->
+    <div class="tab-content" id="tab-connection">
+      <div class="auth-row">
+        <span class="auth-status-text" id="authStatusText">Not connected</span>
+      </div>
+
+      <div id="customPanel">
+        <div class="creds-label">Client ID</div>
+        <input class="creds-input" id="credsClientId" type="text" placeholder="your Spotify Client ID" autocomplete="off" spellcheck="false">
+        
+        <div class="creds-label">Redirect URI <a href="https://developer.spotify.com/dashboard" target="_blank" style="font-size:9px;color:#444;margin-left:4px">(add to app)</a></div>
+        <input class="creds-input" id="credsRedirectUri" type="text" readonly>
+        
+        <div class="creds-hint">
+          Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com</a>, add the Redirect URI, paste Client ID. <a class="mode-link" id="showJamyaLink">Use Jam-Ya App →</a>
+        </div>
+        
+        <button class="connect-btn" id="customConnectBtn" style="width:100%;margin-top:8px">Save &amp; Connect</button>
+      </div>
+
+      <div id="jamyaPanel" style="display:none">
+        <div class="creds-hint">
+          Quick connect using Jam-Ya App. <a class="mode-link" id="showCustomLink">← Back to your app</a>
+        </div>
+        <button class="connect-btn" id="jamyaConnectBtn" style="width:100%;margin-top:8px">Connect</button>
+      </div>
+
+      <div id="connectErrorMsg"></div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    Part of the Jam-Ya suite · <a href="https://jam-ya.com" target="_blank">jam-ya.com →</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

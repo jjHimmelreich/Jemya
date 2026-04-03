@@ -85,6 +85,13 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .device-info {
+      font-size: 10px;
+      color: #666;
+      margin-top: 4px;
+      display: none;
+    }
+    .device-info.visible { display: block; }
 
     /* ── Progress ── */
     .progress-bar {
@@ -423,7 +430,7 @@
     <h1>Jam-Ya Auto Fade</h1>
     <div style="display:flex;align-items:center;gap:6px">
       <span class="auth-status err" id="authStatus" style="font-size:10px">Not connected</span>
-      <span class="version">v2.0</span>
+      <span class="version">v2.2</span>
       <button class="gear-btn" id="gearBtn" title="Spotify credentials">⚙</button>
     </div>
   </div>
@@ -479,6 +486,7 @@
     </div>
     <div class="track-name empty" id="trackName">Nothing playing</div>
     <div class="artist-name" id="artistName"></div>
+    <div class="device-info" id="deviceInfo">📡 Playing on: <span id="deviceName"></span></div>
 
     <div class="progress-bar" id="progressBar">
       <div class="progress-fill" id="progressFill"></div>
@@ -502,6 +510,7 @@
 
     <div class="fade-badge" id="fadeBadge">⟳ crossfading…</div>
     <div class="rate-warning" id="rateWarning">⚠ Rate limited — pausing volume writes</div>
+    <div class="rate-warning" id="deviceWarning" style="color:#f59e0b">⚠ Controls disabled — not playing on Web Player</div>
   </div>
 
   <!-- Settings -->

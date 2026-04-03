@@ -1,0 +1,11 @@
+{
+  "id": "dj-mixer",
+  "name": "DJ Mixer",
+  "version": "1.0.0",
+  "description": "A DJ mixing tool that lets you blend, cue, and mix your Spotify playlists like a real DJ deck.",
+  "type": "standalone",
+  "installationCost": "free",
+  "author": "jjHimmelreich",
+  "homepage": "https://github.com/jjHimmelreich/DJMixer",
+  "documentation": "README.md"
+}
