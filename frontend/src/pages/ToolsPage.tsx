@@ -1,34 +1,6 @@
 import { useState } from 'react';
+import { TOOLS, type Tool } from '../data/tools';
 import styles from './ToolsPage.module.css';
-
-interface Tool {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  status: 'installed' | 'available' | 'coming-soon';
-  url?: string;
-  installation?: string;
-}
-
-const TOOLS: Tool[] = [
-  {
-    id: 'spotify-crossfade',
-    name: 'Spotify Crossfade',
-    description: 'Add smooth crossfade transitions between tracks on Spotify Web Player. Fade out the current track while fading in the next one with customizable duration (1-10 seconds).',
-    icon: '🎵',
-    status: 'available',
-    url: 'https://github.com/jjHimmelreich/Jemya/tree/feature/migrate-to-fastapi-react/tools/spotify-crossfade-extension',
-    installation: 'chrome-extension',
-  },
-  {
-    id: 'playlist-merger',
-    name: 'Playlist Merger Pro',
-    description: 'Merge multiple playlists into one with smart deduplication and ordering. Coming soon with batch operations.',
-    icon: '🎯',
-    status: 'coming-soon',
-  },
-];
 
 function ToolCard({ tool }: { tool: Tool }) {
   const [expanded, setExpanded] = useState(false);
@@ -110,6 +82,19 @@ function ToolCard({ tool }: { tool: Tool }) {
               </li>
             </ol>
           )}
+          {tool.id === 'dj-mixer' && (
+            <ol className={styles.instructionsList}>
+              <li>
+                <strong>Visit the DJ Mixer repository</strong> on GitHub and follow the setup instructions in its README
+              </li>
+              <li>
+                <strong>Clone the repo:</strong> <code>git clone https://github.com/jjHimmelreich/DJMixer.git</code>
+              </li>
+              <li>
+                <strong>Install dependencies</strong> and run the app as described in the project README
+              </li>
+            </ol>
+          )}
 
           <div className={styles.installButton}>
             <a href={tool.url} target="_blank" rel="noreferrer" className={styles.downloadBtn}>
@@ -119,12 +104,22 @@ function ToolCard({ tool }: { tool: Tool }) {
 
           <div className={styles.features}>
             <h4>Features</h4>
-            <ul>
-              <li>✨ Smooth crossfade transitions between tracks</li>
-              <li>⚙️ Configurable fade duration (1-10 seconds)</li>
-              <li>🎚️ Enable/disable with one click</li>
-              <li>🚀 Lightweight with minimal performance impact</li>
-            </ul>
+            {tool.id === 'spotify-crossfade' && (
+              <ul>
+                <li>✨ Smooth crossfade transitions between tracks</li>
+                <li>⚙️ Configurable fade duration (1-10 seconds)</li>
+                <li>🎚️ Enable/disable with one click</li>
+                <li>🚀 Lightweight with minimal performance impact</li>
+              </ul>
+            )}
+            {tool.id === 'dj-mixer' && (
+              <ul>
+                <li>🎛️ Dual-deck controls for cueing and mixing</li>
+                <li>🎚️ Cross-fader to blend tracks seamlessly</li>
+                <li>🎵 Works with your existing playlists</li>
+                <li>🔗 Standalone app — no browser extension required</li>
+              </ul>
+            )}
           </div>
         </div>
       )}

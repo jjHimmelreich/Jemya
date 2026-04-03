@@ -34,18 +34,23 @@ const state = {
   durationMs:  0,
   isPlaying:   false,
   volumePercent: 50,
+  deviceName:  null,   // e.g., "Web Player (Chrome)", "iPhone"
+  deviceType:  null,   // e.g., "Computer", "Smartphone", "Speaker"
 
   // Crossfade settings
   crossfadeEnabled:   true,
-  fadeOutDuration:    5000, // ms — how long the fade-out lasts
-  fadeInDuration:     5000, // ms — how long the fade-in lasts
-  minVolume:          3,    // % — lowest volume during fade (never fully silent)
+  fadeOutDuration:    2500, // ms — how long the fade-out lasts
+  fadeInDuration:     4500, // ms — how long the fade-in lasts
+  minVolume:          15,   // % — lowest volume during fade (never fully silent)
   fadeOutCurveName:   'scurve',  // 'linear' | 'logarithmic' | 'exponential' | 'scurve' | 'eqpower'
   fadeInCurveName:    'scurve',  // 'linear' | 'logarithmic' | 'exponential' | 'scurve' | 'eqpower'
 
   // Fade state
   preFadeVolume: 50,    // volume captured before fade-out started
   preFadeVolumeProtected: false, // true between fade-out end and fade-in read — blocks poll sync
+
+  // Detached window tracking
+  detachedWindowId: null, // ID of the detached player window, if open
   isFadingOut:   false,
   isFadingIn:    false,
   fadeInterval:  null,  // setInterval handle for the active fade step loop
@@ -203,9 +208,76 @@ async function spotifyFetch(method, path, body = null) {
   if (res.status === 204 || res.status === 202) return null; // success, no body
   if (!res.ok) throw Object.assign(new Error(`http_${res.status}`), { code: res.status });
 
-  return res.json();
+  // Check if there's actually content to parse
+  const contentType = res.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    // No JSON content, but request was successful
+    return null;
+  }
+
+  try {
+    return await res.json();
+  } catch (e) {
+    // JSON parse failed, but the request itself was successful
+    LOG('⚠ Response was not valid JSON, treating as success:', e.message);
+    return null;
+  }
 }
 
+// ── Queue ─────────────────────────────────────────────────────────────────────
+
+async function fetchQueue() {
+  if (!state.token) {
+    return [];
+  }
+  
+  try {
+    const data = await spotifyFetch('GET', '/v1/me/player/queue');
+    // Return the queue array (currently_playing is separate in the API response)
+    return data.queue || [];
+  } catch (e) {
+    LOG('\u26a0 Queue fetch failed:', e.message);
+    return [];
+  }
+}
+async function playQueueTrack(queueIndex) {
+  if (!state.token) {
+    throw new Error('Not authenticated');
+  }
+  
+  // queueIndex is the position in the queue (0 = next track, 1 = second track, etc.)
+  // To reach queue[0], skip once. To reach queue[N], skip (N+1) times
+  const skipsNeeded = queueIndex + 1;
+  
+  cancelActiveFade();
+  
+  if (state.crossfadeEnabled) {
+    // Fade out over fadeOutDuration ms, then skip to the track
+    const fadeOutDur = state.fadeOutDuration;
+    LOG(`🎵 Skipping to queue position ${queueIndex} (${skipsNeeded} skip${skipsNeeded > 1 ? 's' : ''}): fading out over ${fadeOutDur / 1000}s`);
+    startFadeOut(fadeOutDur);
+    
+    // Wait for fade to complete
+    await new Promise(resolve => setTimeout(resolve, fadeOutDur));
+  } else {
+    LOG(`🎵 Skipping to queue position ${queueIndex} (${skipsNeeded} skip${skipsNeeded > 1 ? 's' : ''})`);
+  }
+  
+  // Skip to the track by calling next endpoint multiple times
+  for (let i = 0; i < skipsNeeded; i++) {
+    await spotifyFetch('POST', '/v1/me/player/next');
+    LOG(`  ↪ Skip ${i + 1}/${skipsNeeded} completed`);
+    // Delay between skips
+    if (i < skipsNeeded - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  
+  LOG(`✓ Successfully skipped ${skipsNeeded} track${skipsNeeded > 1 ? 's' : ''}`);
+  
+  // Force poll to detect the new track and trigger fade-in
+  forcePoll();
+}
 // ── Volume control ────────────────────────────────────────────────────────────
 
 async function setVolume(vol) {
@@ -364,6 +436,8 @@ async function pollPlayback() {
   state.progressMs = data.progress_ms ?? 0;
   state.durationMs = data.item.duration_ms ?? 0;
   state.isPlaying  = data.is_playing ?? false;
+  state.deviceName = data.device?.name ?? null;
+  state.deviceType = data.device?.type ?? null;
 
   // Sync volume from API only when not actively writing it ourselves
   if (!state.isFadingOut && !state.isFadingIn) {
@@ -376,7 +450,18 @@ async function pollPlayback() {
     }
   }
 
-  LOG(`🎵 "${state.trackName}" — ${Math.round(state.progressMs / 1000)}s / ${Math.round(state.durationMs / 1000)}s | vol: ${state.volumePercent}% | fading: ${state.isFadingOut ? 'out' : state.isFadingIn ? 'in' : 'no'}`);
+  // ── Device eligibility check ─────────────────────────────────────────────
+  // Only control Web Player devices (e.g., "Web Player (Chrome)", "Web Player (Firefox)")
+  const isEligibleDevice = state.deviceName?.toLowerCase().includes('web player') ?? false;
+  
+  LOG(`🎵 "${state.trackName}" — ${Math.round(state.progressMs / 1000)}s / ${Math.round(state.durationMs / 1000)}s | device: ${state.deviceName} (${state.deviceType}) | vol: ${state.volumePercent}% | eligible: ${isEligibleDevice} | fading: ${state.isFadingOut ? 'out' : state.isFadingIn ? 'in' : 'no'}`);
+
+  // Skip all control logic if device is not eligible
+  if (!isEligibleDevice) {
+    LOG('⏭ Skipping control — device not eligible per settings');
+    broadcast();
+    return;
+  }
 
   // ── A new track started — always check even during fades ──────────────────
   // This is the ONLY way fade-in gets triggered for natural track advances.
@@ -465,6 +550,8 @@ function getPublicState() {
     durationMs:        state.durationMs,
     isPlaying:         state.isPlaying,
     volumePercent:     state.volumePercent,
+    deviceName:        state.deviceName,
+    deviceType:        state.deviceType,
     crossfadeEnabled: state.crossfadeEnabled,
     fadeOutDuration:  state.fadeOutDuration,
     fadeInDuration:   state.fadeInDuration,
@@ -533,7 +620,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       break;
 
     case 'START_OAUTH':
-      startOAuthFlow(sendResponse, msg.mode ?? 'jamya');
+      startOAuthFlow(sendResponse, msg.mode ?? 'jamya', msg.clientId);
       return true; // async response
 
     case 'SET_CREDENTIALS':
@@ -557,6 +644,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true });
         });
       return true; // async response
+
+    case 'DETACH_WINDOW':
+      handleDetachWindow()
+        .then((windowId) => sendResponse({ ok: true, windowId }))
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true; // async response
+
+    case 'FETCH_QUEUE':
+      fetchQueue()
+        .then((queue) => sendResponse({ ok: true, queue }))
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true; // async response
+
+    case 'PLAY_QUEUE_TRACK':
+      playQueueTrack(msg.queueIndex)
+        .then(() => sendResponse({ ok: true }))
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true; // async response
   }
 });
 
@@ -564,6 +669,44 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // service worker from sleeping while a Spotify Web Player tab is open.
 chrome.runtime.onConnect.addListener((_port) => {
   // Intentionally empty — just holding the port open is enough.
+});
+
+// ── Detached window management ────────────────────────────────────────────────
+
+async function handleDetachWindow() {
+  // If a detached window already exists, focus it instead of creating a new one
+  if (state.detachedWindowId !== null) {
+    try {
+      await chrome.windows.update(state.detachedWindowId, { focused: true });
+      LOG('🪟 Focused existing detached window:', state.detachedWindowId);
+      return state.detachedWindowId;
+    } catch (e) {
+      // Window was closed or doesn't exist anymore
+      LOG('🪟 Detached window no longer exists, creating new one');
+      state.detachedWindowId = null;
+    }
+  }
+
+  // Create a new detached window
+  const win = await chrome.windows.create({
+    url: 'popup.html',
+    type: 'popup',
+    width: 320,
+    height: 900,
+    focused: true
+  });
+  
+  state.detachedWindowId = win.id;
+  LOG('🪟 Created detached window:', win.id);
+  return win.id;
+}
+
+// Track window removal to clear detached window ID
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === state.detachedWindowId) {
+    state.detachedWindowId = null;
+    LOG('🪟 Detached window closed');
+  }
 });
 
 // ── Token handlers ────────────────────────────────────────────────────────────
@@ -698,10 +841,11 @@ const SPOTIFY_CLIENT_ID = '535ef4e171b74750836388e73b3c20d7';
 const SPOTIFY_REDIRECT  = 'https://jam-ya.com/callback';
 const SPOTIFY_SCOPE     = 'user-read-playback-state user-modify-playback-state';
 
-function startOAuthFlow(sendResponse, mode) {  // mode: 'pkce' | 'jamya'
-  if (mode === 'pkce' && state.spotifyClientId) {
+function startOAuthFlow(sendResponse, mode, providedClientId) {  // mode: 'pkce' | 'jamya'
+  // Use provided clientId from popup (even if not saved yet) or fall back to saved one
+  const clientId = providedClientId || state.spotifyClientId;
+  if (mode === 'pkce' && clientId) {
     // ── Standalone / pure-PKCE mode ──────────────────────────────────────────
-    const clientId    = state.spotifyClientId;
     const redirectUri = chrome.identity.getRedirectURL();
     const verifier    = generateCodeVerifier();
 

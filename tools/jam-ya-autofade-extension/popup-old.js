@@ -74,17 +74,21 @@ function render(s) {
 
   // Connected / disconnected UI state
   const isConnected = !!s.hasToken;
+  const isWebPlayer = s.deviceName?.toLowerCase().includes('web player') ?? false;
+  const canControl = isConnected && isWebPlayer;
+  
   document.getElementById('setupHint').style.display     = isConnected ? 'none' : 'block';
   document.getElementById('trackName').style.display     = isConnected ? ''     : 'none';
   document.getElementById('artistName').style.display    = isConnected ? ''     : 'none';
-  document.getElementById('progressBar').classList.toggle('locked',     !isConnected);
-  document.querySelector('.progress-times').classList.toggle('locked',   !isConnected);
-  document.querySelector('.controls').classList.toggle('locked',         !isConnected);
-  document.getElementById('volumeSlider').parentElement.classList.toggle('locked', !isConnected);
+  document.getElementById('progressBar').classList.toggle('locked',     !canControl);
+  document.querySelector('.progress-times').classList.toggle('locked',   !canControl);
+  document.querySelector('.controls').classList.toggle('locked',         !canControl);
+  document.getElementById('volumeSlider').parentElement.classList.toggle('locked', !canControl);
 
   // Track
   const trackEl  = document.getElementById('trackName');
   const artistEl = document.getElementById('artistName');
+  const deviceEl = document.getElementById('deviceInfo');
   if (s.trackName) {
     trackEl.textContent  = s.trackName;
     trackEl.className    = 'track-name';
@@ -94,6 +98,18 @@ function render(s) {
     trackEl.className    = 'track-name empty';
     artistEl.textContent = '';
   }
+
+  // Device info
+  if (s.deviceName && isConnected) {
+    document.getElementById('deviceName').textContent = s.deviceName;
+    deviceEl.classList.add('visible');
+  } else {
+    deviceEl.classList.remove('visible');
+  }
+
+  // Device warning when controls are locked
+  document.getElementById('deviceWarning').style.display = 
+    (isConnected && !isWebPlayer) ? 'block' : 'none';
 
   document.getElementById('progressTotal').textContent = fmt(s.durationMs);
   document.getElementById('playPauseBtn').textContent  = s.isPlaying ? '⏸' : '▶';
@@ -352,8 +368,9 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
   const mode = customPanel.style.display !== 'none' ? 'pkce' : 'jamya';
 
   // Validate Client ID before starting PKCE flow
+  let clientId = null;
   if (mode === 'pkce') {
-    const clientId = document.getElementById('credsClientId').value.trim();
+    clientId = document.getElementById('credsClientId').value.trim();
     if (!clientId) {
       errorMsg.textContent = 'Please enter your Spotify Client ID first';
       errorMsg.style.display = 'block';
@@ -364,7 +381,7 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
 
   btn.textContent = 'Connecting…';
   btn.disabled    = true;
-  const res = await send({ type: 'START_OAUTH', mode });
+  const res = await send({ type: 'START_OAUTH', mode, clientId });
 
   // For Jam-ya mode the popup closes naturally when Chrome opens the new tab.
   // For Your Spotify App (PKCE) the popup stays open; res carries success/failure.

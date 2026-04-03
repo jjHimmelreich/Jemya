@@ -1,10 +1,18 @@
-.container {
+/* ── Page wrapper ─────────────────────────────────────────────────── */
+.page {
   min-height: 100vh;
+  background: #121212;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Hero / login section ─────────────────────────────────────────── */
+.hero {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #121212;
-  padding: 20px;
+  padding: 60px 20px 48px;
 }
 
 .card {
@@ -24,9 +32,6 @@
 .logoImg {
   width: 80px;
   height: 80px;
-  /* Dark (#141B41) outlines fade into the card background, leaving the
-     #47BCFE blue ear-cup fills as the dominant visible shape — same look
-     as the browser tab favicon. drop-shadow adds a subtle blue glow. */
   filter: drop-shadow(0 0 10px rgba(71, 188, 254, 0.45));
 }
 
@@ -76,3 +81,160 @@
   color: #555;
   line-height: 1.5;
 }
+
+/* ── Tools section ────────────────────────────────────────────────── */
+.toolsSection {
+  padding: 0 24px 64px;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.toolsSectionHeader {
+  text-align: center;
+}
+
+.toolsSectionTitle {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+  background: linear-gradient(135deg, #3B7EA5 0%, #5B9EC5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.toolsSectionSubtitle {
+  color: #666;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+/* ── Tool cards grid ──────────────────────────────────────────────── */
+.toolsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 680px) {
+  .toolsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.toolCard {
+  background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.toolCard:hover {
+  border-color: #3B7EA5;
+  box-shadow: 0 0 16px rgba(59, 126, 165, 0.12);
+}
+
+.toolIcon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.toolInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.toolName {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e0e0e0;
+}
+
+.toolDescription {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #888;
+  line-height: 1.5;
+}
+
+.toolLink {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3B7EA5;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.toolLink:hover {
+  color: #5B9EC5;
+}
+
+/* ── CTA banner ───────────────────────────────────────────────────── */
+.ctaBanner {
+  background: linear-gradient(135deg, rgba(59, 126, 165, 0.08) 0%, rgba(91, 158, 197, 0.08) 100%);
+  border: 1px solid #2a3a4a;
+  border-radius: 14px;
+  padding: 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.ctaText {
+  margin: 0;
+  font-size: 1rem;
+  color: #bbb;
+  line-height: 1.5;
+}
+
+.ctaText strong {
+  color: #e0e0e0;
+}
+
+.ctaButtons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ctaBtn {
+  padding: 11px 28px;
+  background: #3B7EA5;
+  color: #fff;
+  border: none;
+  border-radius: 30px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: opacity 0.15s;
+}
+
+.ctaBtn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.ctaBtn:disabled {
+  opacity: 0.5;
+}
+
+.ctaBtnYt {
+  background: #c4302b;
+}
+
