@@ -56,11 +56,13 @@ test_login_ui.py
 # Generated screenshots and layout images (DO NOT COMMIT)
 *.png
 !frontend/public/apple-touch-icon.png
+!tools/jam-ya-autofade-extension/icons/*.png
 screenshots/*
 layout_*.png
 state_*.png
 streamlit_*.png
 layout_analysis.json
+
 
 # SSL certificates (DO NOT COMMIT)
 cert.pem
