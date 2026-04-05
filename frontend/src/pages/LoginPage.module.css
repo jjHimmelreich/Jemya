@@ -238,3 +238,27 @@
   background: #c4302b;
 }
 
+.legalLinks {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.legalLink {
+  color: #8fb9d4;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.legalLink:hover {
+  color: #b6d8ee;
+  text-decoration: underline;
+}
+
+.legalSeparator {
+  color: #4f5f6b;
+  font-size: 0.8rem;
+}
+
