@@ -552,6 +552,84 @@
     .footer a:hover {
       color: #4a94bf;
     }
+
+    /* EQ Controls */
+    .eq-preset-group {
+      margin-bottom: 12px;
+    }
+    .eq-preset-select {
+      width: 100%;
+      padding: 6px 8px;
+      background: rgba(59,126,165,0.1);
+      border: 1px solid rgba(59,126,165,0.22);
+      color: #ccc;
+      border-radius: 5px;
+      font-size: 11px;
+      outline: none;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .eq-preset-select:focus { border-color: #3B7EA5; }
+    .eq-preset-select option { background: #1a1a1a; color: #ccc; }
+    .eq-band {
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .eq-band:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    .eq-band-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .eq-band-name {
+      color: #ccc;
+    }
+    .eq-band-value {
+      color: #3B7EA5;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .eq-band-slider {
+      width: 100%;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .eq-band-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px; height: 12px;
+      background: #3B7EA5;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .eq-band-slider::-webkit-slider-thumb:hover {
+      background: #4a94bf;
+    }
+    .eq-band-slider::-moz-range-thumb {
+      width: 12px; height: 12px;
+      background: #3B7EA5;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+    }
+    .eq-band-slider::-moz-range-thumb:hover {
+      background: #4a94bf;
+    }
   </style>
 </head>
 <body>
@@ -562,7 +640,7 @@
     <div class="header-right">
       <button class="detach-btn" id="detachBtn" title="Open in separate window">⇱ Detach</button>
       <span class="auth-status err" id="authStatus">✗</span>
-      <span class="version">v2.3</span>
+      <span class="version">v2.4</span>
     </div>
   </div>
 
@@ -614,6 +692,7 @@
     <div class="tab-nav">
       <button class="tab-btn active" data-tab="autofade">Auto Fade</button>
       <button class="tab-btn" data-tab="connection">Connection</button>
+      <button class="tab-btn" data-tab="eq">EQ</button>
     </div>
 
     <!-- Auto Fade Tab -->
@@ -696,6 +775,52 @@
       </div>
 
       <div id="connectErrorMsg"></div>
+    </div>
+
+    <!-- EQ Tab -->
+    <div class="tab-content" id="tab-eq">
+      <div class="setting-row">
+        <span class="setting-label">Enable EQ</span>
+        <div class="toggle-switch" id="enableEqToggle"></div>
+      </div>
+
+      <div id="eqControls" style="display:none;">
+        <div class="eq-preset-group">
+          <div class="setting-label">Preset</div>
+          <select class="eq-preset-select" id="eqPresetSelect">
+            <option value="flat">Flat</option>
+            <option value="bass-boost">Bass Boost</option>
+            <option value="vocal">Vocal</option>
+            <option value="treble">Treble</option>
+            <option value="warm">Warm</option>
+            <option value="bright">Bright</option>
+          </select>
+        </div>
+
+        <div class="eq-band">
+          <div class="eq-band-label">
+            <span class="eq-band-name">Low (125 Hz)</span>
+            <span class="eq-band-value" id="eqLowValue">0 dB</span>
+          </div>
+          <input type="range" class="eq-band-slider" id="eqLowSlider" min="-12" max="12" step="1" value="0">
+        </div>
+
+        <div class="eq-band">
+          <div class="eq-band-label">
+            <span class="eq-band-name">Mid (1 kHz)</span>
+            <span class="eq-band-value" id="eqMidValue">0 dB</span>
+          </div>
+          <input type="range" class="eq-band-slider" id="eqMidSlider" min="-12" max="12" step="1" value="0">
+        </div>
+
+        <div class="eq-band">
+          <div class="eq-band-label">
+            <span class="eq-band-name">High (8 kHz)</span>
+            <span class="eq-band-value" id="eqHighValue">0 dB</span>
+          </div>
+          <input type="range" class="eq-band-slider" id="eqHighSlider" min="-12" max="12" step="1" value="0">
+        </div>
+      </div>
     </div>
   </div>
 

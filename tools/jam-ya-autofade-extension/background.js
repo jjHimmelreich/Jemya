@@ -63,6 +63,52 @@ const state = {
 
   // Rate-limit
   rateLimitUntil: 0,
+
+  // EQ settings
+  eqEnabled:    false,
+  eqState: {
+    currentPreset: 'flat',
+    bands: {
+      low:  0,   // 125 Hz, in dB
+      mid:  0,   // 1 kHz, in dB
+      high: 0,   // 8 kHz, in dB
+    },
+  },
+};
+
+// ── EQ Presets ────────────────────────────────────────────────────────────────
+
+const EQ_PRESETS = {
+  flat: {
+    low:  0,
+    mid:  0,
+    high: 0,
+  },
+  'bass-boost': {
+    low:  6,
+    mid:  0,
+    high: 0,
+  },
+  vocal: {
+    low:  -3,
+    mid:  4,
+    high: 2,
+  },
+  treble: {
+    low:  0,
+    mid:  0,
+    high: 6,
+  },
+  warm: {
+    low:  3,
+    mid:  1,
+    high: -2,
+  },
+  bright: {
+    low:  -2,
+    mid:  1,
+    high: 4,
+  },
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -76,6 +122,7 @@ async function loadState() {
     'spotifyClientId',
     'crossfadeEnabled', 'fadeOutDuration', 'fadeInDuration', 'minVolume',
     'fadeOutCurveName', 'fadeInCurveName', 'preFadeVolume',
+    'eqEnabled', 'eqState',
   ]);
   if (s.token         !== undefined) state.token         = s.token;
   if (s.tokenExpiry   !== undefined) state.tokenExpiry   = s.tokenExpiry;
@@ -89,6 +136,8 @@ async function loadState() {
   if (s.fadeOutCurveName  !== undefined) state.fadeOutCurveName  = s.fadeOutCurveName;
   if (s.fadeInCurveName   !== undefined) state.fadeInCurveName   = s.fadeInCurveName;
   if (s.preFadeVolume     !== undefined) state.preFadeVolume     = s.preFadeVolume;
+  if (s.eqEnabled         !== undefined) state.eqEnabled         = s.eqEnabled;
+  if (s.eqState           !== undefined) state.eqState           = s.eqState;
   LOG('📦 State loaded from storage — token:', state.token ? state.token.slice(0, 12) + '…' : 'none', '| source:', state.tokenSource);
 }
 
@@ -110,6 +159,8 @@ async function persistSettings() {
     minVolume:        state.minVolume,
     fadeOutCurveName: state.fadeOutCurveName,
     fadeInCurveName:  state.fadeInCurveName,
+    eqEnabled:        state.eqEnabled,
+    eqState:          state.eqState,
   });
 }
 
@@ -580,6 +631,8 @@ function getPublicState() {
     isFadingOut:      state.isFadingOut,
     isFadingIn:       state.isFadingIn,
     rateLimited:      Date.now() < state.rateLimitUntil,
+    eqEnabled:        state.eqEnabled,
+    eqState:          state.eqState,
     snapshotAt:        Date.now(),
   };
 }
@@ -588,6 +641,15 @@ function broadcast() {
   updateIcon();
   chrome.runtime.sendMessage({ type: 'STATE_UPDATE', state: getPublicState() })
     .catch(() => {}); // popup may not be open — ignore
+}
+
+function broadcastEqMessage(msg) {
+  // Send EQ control messages to Spotify tab's content script
+  chrome.tabs.query({ url: 'https://open.spotify.com/*' }, (tabs) => {
+    tabs.forEach(tab => {
+      chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
+    });
+  });
 }
 
 // ── Message handling ──────────────────────────────────────────────────────────
@@ -681,6 +743,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then(() => sendResponse({ ok: true }))
         .catch((e) => sendResponse({ ok: false, error: e.message }));
       return true; // async response
+
+    case 'EQ_ENABLE':
+      state.eqEnabled = msg.enabled;
+      persistSettings();
+      broadcast();
+      broadcastEqMessage({ type: 'EQ_ENABLE', enabled: msg.enabled });
+      sendResponse({ ok: true });
+      break;
+
+    case 'EQ_SET_PRESET':
+      LOG('📝 EQ_SET_PRESET received:', msg.preset);
+      state.eqState.currentPreset = msg.preset;
+      if (EQ_PRESETS[msg.preset]) {
+        const preset = EQ_PRESETS[msg.preset];
+        state.eqState.bands.low = preset.low;
+        state.eqState.bands.mid = preset.mid;
+        state.eqState.bands.high = preset.high;
+        LOG('🎚️ Applied EQ preset:', msg.preset, state.eqState.bands);
+        broadcastEqMessage({ type: 'EQ_SET_BAND', band: 'low', gainDb: preset.low });
+        broadcastEqMessage({ type: 'EQ_SET_BAND', band: 'mid', gainDb: preset.mid });
+        broadcastEqMessage({ type: 'EQ_SET_BAND', band: 'high', gainDb: preset.high });
+      } else {
+        LOG('⚠️ Preset not found:', msg.preset);
+      }
+      persistSettings();
+      broadcast();
+      sendResponse({ ok: true });
+      break;
+
+    case 'EQ_SET_BAND':
+      const band = msg.band; // 'low' | 'mid' | 'high'
+      const value = msg.value; // dB value
+      if (state.eqState.bands.hasOwnProperty(band)) {
+        state.eqState.bands[band] = value;
+        broadcastEqMessage({ type: 'EQ_SET_BAND', band, gainDb: value });
+        persistSettings();
+        broadcast();
+      }
+      sendResponse({ ok: true });
+      break;
   }
 });
 

@@ -182,7 +182,7 @@ For issues or suggestions:
 
 ---
 
-**Version**: 2.3.0  
+**Version**: 2.4.0  
 **Part of**: Jam-Ya suite · [jam-ya.com](https://jam-ya.com)  
 **Compatible**: Chrome/Edge on macOS, Windows, Linux  
 **API**: Spotify Web API with OAuth 2.0 PKCE

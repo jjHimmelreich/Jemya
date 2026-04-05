@@ -134,6 +134,28 @@ function render(s) {
   document.getElementById('fadeOutCurveSelect').value = s.fadeOutCurveName ?? 'scurve';
   document.getElementById('fadeInCurveSelect').value  = s.fadeInCurveName  ?? 'scurve';
 
+  // EQ Settings
+  const eqEnabled = s.eqEnabled ?? false;
+  document.getElementById('enableEqToggle').classList.toggle('on', eqEnabled);
+  document.getElementById('eqControls').style.display = eqEnabled ? 'block' : 'none';
+  
+  if (s.eqState) {
+    console.log('[Popup] Rendering EQ state:', s.eqState);
+    document.getElementById('eqPresetSelect').value = s.eqState.currentPreset ?? 'flat';
+    
+    const eqLow = s.eqState.bands?.low ?? 0;
+    document.getElementById('eqLowSlider').value = eqLow;
+    document.getElementById('eqLowValue').textContent = `${eqLow > 0 ? '+' : ''}${eqLow} dB`;
+    
+    const eqMid = s.eqState.bands?.mid ?? 0;
+    document.getElementById('eqMidSlider').value = eqMid;
+    document.getElementById('eqMidValue').textContent = `${eqMid > 0 ? '+' : ''}${eqMid} dB`;
+    
+    const eqHigh = s.eqState.bands?.high ?? 0;
+    document.getElementById('eqHighSlider').value = eqHigh;
+    document.getElementById('eqHighValue').textContent = `${eqHigh > 0 ? '+' : ''}${eqHigh} dB`;
+  }
+
   // Indicators — differentiated by fade phase
   const fadeBadge = document.getElementById('fadeBadge');
   if (s.isFadingOut) {
@@ -568,6 +590,40 @@ async function loadCredentials() {
   customPanel.style.display = isCustom ? 'block' : 'none';
   if (stored.spotifyClientId) document.getElementById('credsClientId').value = stored.spotifyClientId;
 }
+
+// ── EQ Controls ──────────────────────────────────────────────────────────────
+
+// EQ Enable toggle
+document.getElementById('enableEqToggle').addEventListener('click', async () => {
+  const toggle = document.getElementById('enableEqToggle');
+  const eqControls = document.getElementById('eqControls');
+  const isEnabled = toggle.classList.contains('on');
+  const newState = !isEnabled;
+  
+  toggle.classList.toggle('on', newState);
+  eqControls.style.display = newState ? 'block' : 'none';
+  
+  await send({ type: 'EQ_ENABLE', enabled: newState });
+});
+
+// EQ Preset dropdown
+document.getElementById('eqPresetSelect').addEventListener('change', async (e) => {
+  const preset = e.target.value;
+  await send({ type: 'EQ_SET_PRESET', preset });
+});
+
+// EQ Band sliders
+['Low', 'Mid', 'High'].forEach(band => {
+  const bandLower = band.toLowerCase();
+  const slider = document.getElementById(`eq${band}Slider`);
+  const valueEl = document.getElementById(`eq${band}Value`);
+  
+  slider.addEventListener('input', async (e) => {
+    const value = parseInt(e.target.value);
+    valueEl.textContent = `${value > 0 ? '+' : ''}${value} dB`;
+    await send({ type: 'EQ_SET_BAND', band: bandLower, value });
+  });
+});
 
 // ── Detach window ─────────────────────────────────────────────────────────────
 
