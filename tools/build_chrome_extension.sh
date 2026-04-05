@@ -4,7 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXT_DIR="$SCRIPT_DIR/jam-ya-autofade-extension"
-OUT_ZIP="$SCRIPT_DIR/jam-ya-autofade.zip"
+MANIFEST_FILE="$EXT_DIR/manifest.json"
+EXT_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST_FILE" | head -n 1)"
+
+if [[ -z "$EXT_VERSION" ]]; then
+	echo "[build] Could not read extension version from $MANIFEST_FILE" >&2
+	exit 1
+fi
+
+OUT_ZIP="$SCRIPT_DIR/jam-ya-autofade-v${EXT_VERSION}-release.zip"
 
 # Usage:
 #   ./build_chrome_extension.sh
