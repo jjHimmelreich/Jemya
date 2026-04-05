@@ -48,6 +48,8 @@ const state = {
   // Fade state
   preFadeVolume: 50,    // volume captured before fade-out started
   preFadeVolumeProtected: false, // true between fade-out end and fade-in read — blocks poll sync
+  holdMinUntilTrackChange: false, // true after fade-out completes; keeps volume pinned until next track
+  holdMinDeadline: 0,
 
   // Detached window tracking
   detachedWindowId: null, // ID of the detached player window, if open
@@ -318,6 +320,8 @@ function cancelActiveFade() {
   }
   state.isFadingOut = false;
   state.isFadingIn  = false;
+  state.holdMinUntilTrackChange = false;
+  state.holdMinDeadline = 0;
 }
 
 /**
@@ -346,8 +350,21 @@ function startFadeOut(durationMs) {
 
     if (step >= totalSteps) {
       clearInterval(state.fadeInterval);
-      state.fadeInterval = null;
-      state.isFadingOut  = false;
+      // Keep volume pinned to min until next track is observed, so Spotify
+      // cannot briefly snap volume back up at the track boundary.
+      state.holdMinUntilTrackChange = true;
+      state.holdMinDeadline = Date.now() + 8000;
+      state.fadeInterval = setInterval(async () => {
+        if (!state.holdMinUntilTrackChange || Date.now() > state.holdMinDeadline) {
+          clearInterval(state.fadeInterval);
+          state.fadeInterval = null;
+          state.isFadingOut = false;
+          state.holdMinUntilTrackChange = false;
+          state.holdMinDeadline = 0;
+          return;
+        }
+        try { await setVolume(state.minVolume); } catch (_) {}
+      }, stepMs);
     }
   }, stepMs);
 }
@@ -356,7 +373,7 @@ function startFadeOut(durationMs) {
  * Fade volume from minVolume to the pre-fade level over fadeInDuration ms.
  * Called immediately after a new track is detected.
  */
-function startFadeIn() {
+async function startFadeIn() {
   cancelActiveFade();
 
   const to         = state.preFadeVolume || state.volumePercent || 50;
@@ -369,8 +386,10 @@ function startFadeIn() {
   LOG(`🔊 Fade-in starting: 1 → ${to}% over ${durationMs / 1000}s (${totalSteps} steps)`);
   state.isFadingIn = true;
 
-  // Start at minimum volume immediately
-  setVolume(state.minVolume).catch(() => {});
+  // Clamp to minimum before scheduling ramp steps so fade-in never starts from a loud frame.
+  try {
+    await setVolume(state.minVolume);
+  } catch (_) {}
 
   state.fadeInterval = setInterval(async () => {
     step++;
@@ -450,25 +469,25 @@ async function pollPlayback() {
     }
   }
 
-  // ── Device eligibility check ─────────────────────────────────────────────
-  // Only control Web Player devices (e.g., "Web Player (Chrome)", "Web Player (Firefox)")
-  const isEligibleDevice = state.deviceName?.toLowerCase().includes('web player') ?? false;
-  
-  LOG(`🎵 "${state.trackName}" — ${Math.round(state.progressMs / 1000)}s / ${Math.round(state.durationMs / 1000)}s | device: ${state.deviceName} (${state.deviceType}) | vol: ${state.volumePercent}% | eligible: ${isEligibleDevice} | fading: ${state.isFadingOut ? 'out' : state.isFadingIn ? 'in' : 'no'}`);
-
-  // Skip all control logic if device is not eligible
-  if (!isEligibleDevice) {
-    LOG('⏭ Skipping control — device not eligible per settings');
-    broadcast();
-    return;
-  }
-
   // ── A new track started — always check even during fades ──────────────────
   // This is the ONLY way fade-in gets triggered for natural track advances.
   if (prevTrackId && prevTrackId !== state.trackId) {
     LOG('⏭ Track changed:', prevTrackId?.slice(0, 8), '→', state.trackId?.slice(0, 8));
     cancelActiveFade();
-    if (state.crossfadeEnabled) startFadeIn();
+    if (state.crossfadeEnabled) await startFadeIn();
+    broadcast();
+    return;
+  }
+
+  // ── Device eligibility check ─────────────────────────────────────────────
+  // Only control Web Player devices (e.g., "Web Player (Chrome)", "Web Player (Firefox)")
+  const isEligibleDevice = state.deviceName?.toLowerCase().includes('web player') ?? false;
+
+  LOG(`🎵 "${state.trackName}" — ${Math.round(state.progressMs / 1000)}s / ${Math.round(state.durationMs / 1000)}s | device: ${state.deviceName} (${state.deviceType}) | vol: ${state.volumePercent}% | eligible: ${isEligibleDevice} | fading: ${state.isFadingOut ? 'out' : state.isFadingIn ? 'in' : 'no'}`);
+
+  // Skip all control logic if device is not eligible
+  if (!isEligibleDevice) {
+    LOG('⏭ Skipping control — device not eligible per settings');
     broadcast();
     return;
   }
@@ -494,7 +513,7 @@ async function pollPlayback() {
 
   // ── Adaptive poll rate: tighten up near the fade window ───────────────────
   const wantFast   = state.crossfadeEnabled && remaining <= fadeOutDur + 8000;
-  state.pollIntervalMs = wantFast ? 1000 : 3000;
+  state.pollIntervalMs = wantFast ? 500 : 3000;
   broadcast();
 }
 
