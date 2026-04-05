@@ -108,6 +108,26 @@ export function LoginPage() {
             </button>
           </div>
         </div>
+
+        <div className={styles.legalLinks}>
+          <a
+            href="/chrome-extension/jam-ya-auto-fade/privacy-policy.html"
+            target="_blank"
+            rel="noreferrer"
+            className={styles.legalLink}
+          >
+            Jam-Ya Auto Fade Privacy Policy
+          </a>
+          <span className={styles.legalSeparator}>•</span>
+          <a
+            href="/chrome-extension/jam-ya-auto-fade/privacy-policy.md"
+            target="_blank"
+            rel="noreferrer"
+            className={styles.legalLink}
+          >
+            Markdown Version
+          </a>
+        </div>
       </section>
     </div>
   );
