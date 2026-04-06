@@ -11,6 +11,16 @@ let lastState  = null;
 let snapshotAt = Date.now();
 let progressMs = 0;
 
+const EQ_BANDS = [
+  'hz32', 'hz64', 'hz125', 'hz250', 'hz500',
+  'hz1000', 'hz2000', 'hz4000', 'hz8000', 'hz16000',
+];
+
+function formatEqValue(value) {
+  const n = Number(value) || 0;
+  return `${n > 0 ? '+' : ''}${n}`;
+}
+
 // ── Messaging ─────────────────────────────────────────────────────────────────
 
 function send(msg) {
@@ -140,20 +150,16 @@ function render(s) {
   document.getElementById('eqControls').style.display = eqEnabled ? 'block' : 'none';
   
   if (s.eqState) {
-    console.log('[Popup] Rendering EQ state:', s.eqState);
-    document.getElementById('eqPresetSelect').value = s.eqState.currentPreset ?? 'flat';
-    
-    const eqLow = s.eqState.bands?.low ?? 0;
-    document.getElementById('eqLowSlider').value = eqLow;
-    document.getElementById('eqLowValue').textContent = `${eqLow > 0 ? '+' : ''}${eqLow} dB`;
-    
-    const eqMid = s.eqState.bands?.mid ?? 0;
-    document.getElementById('eqMidSlider').value = eqMid;
-    document.getElementById('eqMidValue').textContent = `${eqMid > 0 ? '+' : ''}${eqMid} dB`;
-    
-    const eqHigh = s.eqState.bands?.high ?? 0;
-    document.getElementById('eqHighSlider').value = eqHigh;
-    document.getElementById('eqHighValue').textContent = `${eqHigh > 0 ? '+' : ''}${eqHigh} dB`;
+    const preset = s.eqState.currentPreset ?? 'flat';
+    document.getElementById('eqPresetSelect').value = preset;
+
+    EQ_BANDS.forEach((band) => {
+      const value = Number(s.eqState.bands?.[band] ?? 0);
+      const slider = document.querySelector(`.eq-band-slider[data-band="${band}"]`);
+      const valueEl = document.getElementById(`eqVal${band.charAt(0).toUpperCase()}${band.slice(1)}`);
+      if (slider) slider.value = value;
+      if (valueEl) valueEl.textContent = formatEqValue(value);
+    });
   }
 
   // Indicators — differentiated by fade phase
@@ -613,15 +619,13 @@ document.getElementById('eqPresetSelect').addEventListener('change', async (e) =
 });
 
 // EQ Band sliders
-['Low', 'Mid', 'High'].forEach(band => {
-  const bandLower = band.toLowerCase();
-  const slider = document.getElementById(`eq${band}Slider`);
-  const valueEl = document.getElementById(`eq${band}Value`);
-  
+document.querySelectorAll('.eq-band-slider').forEach((slider) => {
   slider.addEventListener('input', async (e) => {
-    const value = parseInt(e.target.value);
-    valueEl.textContent = `${value > 0 ? '+' : ''}${value} dB`;
-    await send({ type: 'EQ_SET_BAND', band: bandLower, value });
+    const band = e.target.dataset.band;
+    const value = parseInt(e.target.value, 10);
+    const valueEl = document.getElementById(`eqVal${band.charAt(0).toUpperCase()}${band.slice(1)}`);
+    if (valueEl) valueEl.textContent = formatEqValue(value);
+    await send({ type: 'EQ_SET_BAND', band, value });
   });
 });
 

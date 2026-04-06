@@ -69,47 +69,145 @@ const state = {
   eqState: {
     currentPreset: 'flat',
     bands: {
-      low:  0,   // 125 Hz, in dB
-      mid:  0,   // 1 kHz, in dB
-      high: 0,   // 8 kHz, in dB
+      hz32: 0,
+      hz64: 0,
+      hz125: 0,
+      hz250: 0,
+      hz500: 0,
+      hz1000: 0,
+      hz2000: 0,
+      hz4000: 0,
+      hz8000: 0,
+      hz16000: 0,
     },
   },
 };
 
 // ── EQ Presets ────────────────────────────────────────────────────────────────
 
+const EQ_BAND_KEYS = [
+  'hz32', 'hz64', 'hz125', 'hz250', 'hz500',
+  'hz1000', 'hz2000', 'hz4000', 'hz8000', 'hz16000',
+];
+
+const EMPTY_EQ_BANDS = {
+  hz32: 0,
+  hz64: 0,
+  hz125: 0,
+  hz250: 0,
+  hz500: 0,
+  hz1000: 0,
+  hz2000: 0,
+  hz4000: 0,
+  hz8000: 0,
+  hz16000: 0,
+};
+
 const EQ_PRESETS = {
-  flat: {
-    low:  0,
-    mid:  0,
-    high: 0,
-  },
+  flat: { ...EMPTY_EQ_BANDS },
+  acoustic: { hz32: 15, hz64: 15, hz125: 10, hz250: 4, hz500: 7, hz1000: 7, hz2000: 10, hz4000: 12, hz8000: 10, hz16000: 5 },
+  'bass-booster': { hz32: 15, hz64: 12, hz125: 10, hz250: 7, hz500: 3, hz1000: 0, hz2000: 0, hz4000: 0, hz8000: 0, hz16000: 0 },
+  'treble-booster': { hz32: 0, hz64: 0, hz125: 0, hz250: 0, hz500: 0, hz1000: 3, hz2000: 8, hz4000: 12, hz8000: 14, hz16000: 17 },
+  'vocal-booster': { hz32: -5, hz64: -10, hz125: -10, hz250: 4, hz500: 12, hz1000: 12, hz2000: 10, hz4000: 5, hz8000: 0, hz16000: -5 },
+  dance: { hz32: 12, hz64: 22, hz125: 15, hz250: 0, hz500: 5, hz1000: 10, hz2000: 16, hz4000: 15, hz8000: 12, hz16000: 0 },
+  electronic: { hz32: 14, hz64: 13, hz125: 4, hz250: 0, hz500: -6, hz1000: 6, hz2000: 3, hz4000: 4, hz8000: 13, hz16000: 15 },
+  hiphop: { hz32: 16, hz64: 14, hz125: 4, hz250: 10, hz500: -4, hz1000: -3, hz2000: 4, hz4000: -2, hz8000: 6, hz16000: 10 },
+  jazz: { hz32: 13, hz64: 10, hz125: 4, hz250: 6, hz500: -5, hz1000: -5, hz2000: 0, hz4000: 4, hz8000: 10, hz16000: 13 },
+  pop: { hz32: -5, hz64: -4, hz125: 0, hz250: 6, hz500: 15, hz1000: 13, hz2000: 6, hz4000: 0, hz8000: -3, hz16000: -5 },
+  rock: { hz32: 16, hz64: 13, hz125: 10, hz250: 4, hz500: -1, hz1000: -2, hz2000: 1, hz4000: 8, hz8000: 11, hz16000: 15 },
+  classical: { hz32: 15, hz64: 12, hz125: 10, hz250: 8, hz500: -5, hz1000: -5, hz2000: 0, hz4000: 7, hz8000: 10, hz16000: 12 },
   'bass-boost': {
-    low:  6,
-    mid:  0,
-    high: 0,
+    hz32: 6,
+    hz64: 4,
+    hz125: 3,
+    hz250: 1,
+    hz500: 0,
+    hz1000: 0,
+    hz2000: 0,
+    hz4000: 0,
+    hz8000: 0,
+    hz16000: 0,
   },
   vocal: {
-    low:  -3,
-    mid:  4,
-    high: 2,
-  },
-  treble: {
-    low:  0,
-    mid:  0,
-    high: 6,
+    hz32: -3,
+    hz64: -5,
+    hz125: -4,
+    hz250: 2,
+    hz500: 4,
+    hz1000: 5,
+    hz2000: 4,
+    hz4000: 3,
+    hz8000: 2,
+    hz16000: 1,
   },
   warm: {
-    low:  3,
-    mid:  1,
-    high: -2,
+    hz32: 3,
+    hz64: 3,
+    hz125: 2,
+    hz250: 1,
+    hz500: 1,
+    hz1000: 0,
+    hz2000: -1,
+    hz4000: -1,
+    hz8000: -2,
+    hz16000: -2,
   },
   bright: {
-    low:  -2,
-    mid:  1,
-    high: 4,
+    hz32: -2,
+    hz64: -1,
+    hz125: -1,
+    hz250: 0,
+    hz500: 1,
+    hz1000: 1,
+    hz2000: 2,
+    hz4000: 3,
+    hz8000: 4,
+    hz16000: 4,
   },
 };
+
+function normalizeEqState(rawEqState) {
+  const legacyPresetMap = {
+    treble: 'treble-booster',
+  };
+  const normalized = {
+    currentPreset: legacyPresetMap[rawEqState?.currentPreset] ?? rawEqState?.currentPreset ?? 'flat',
+    bands: { ...EMPTY_EQ_BANDS },
+  };
+
+  if (rawEqState?.bands) {
+    const bands = rawEqState.bands;
+
+    // Migrate from previous 3-band state if present.
+    if (typeof bands.low === 'number' || typeof bands.mid === 'number' || typeof bands.high === 'number') {
+      const low = Number(bands.low ?? 0);
+      const mid = Number(bands.mid ?? 0);
+      const high = Number(bands.high ?? 0);
+      normalized.bands.hz32 = low;
+      normalized.bands.hz64 = low;
+      normalized.bands.hz125 = low;
+      normalized.bands.hz250 = Math.round((low + mid) / 2);
+      normalized.bands.hz500 = mid;
+      normalized.bands.hz1000 = mid;
+      normalized.bands.hz2000 = Math.round((mid + high) / 2);
+      normalized.bands.hz4000 = high;
+      normalized.bands.hz8000 = high;
+      normalized.bands.hz16000 = high;
+      return normalized;
+    }
+
+    EQ_BAND_KEYS.forEach((key) => {
+      const value = Number(bands[key]);
+      normalized.bands[key] = Number.isFinite(value) ? value : 0;
+    });
+  }
+
+  if (!EQ_PRESETS[normalized.currentPreset]) {
+    normalized.currentPreset = 'flat';
+  }
+
+  return normalized;
+}
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -137,7 +235,8 @@ async function loadState() {
   if (s.fadeInCurveName   !== undefined) state.fadeInCurveName   = s.fadeInCurveName;
   if (s.preFadeVolume     !== undefined) state.preFadeVolume     = s.preFadeVolume;
   if (s.eqEnabled         !== undefined) state.eqEnabled         = s.eqEnabled;
-  if (s.eqState           !== undefined) state.eqState           = s.eqState;
+  if (s.eqState           !== undefined) state.eqState           = normalizeEqState(s.eqState);
+  else state.eqState = normalizeEqState(state.eqState);
   LOG('📦 State loaded from storage — token:', state.token ? state.token.slice(0, 12) + '…' : 'none', '| source:', state.tokenSource);
 }
 
@@ -757,15 +856,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       state.eqState.currentPreset = msg.preset;
       if (EQ_PRESETS[msg.preset]) {
         const preset = EQ_PRESETS[msg.preset];
-        state.eqState.bands.low = preset.low;
-        state.eqState.bands.mid = preset.mid;
-        state.eqState.bands.high = preset.high;
+        EQ_BAND_KEYS.forEach((key) => {
+          state.eqState.bands[key] = Number(preset[key] ?? 0);
+        });
         LOG('🎚️ Applied EQ preset:', msg.preset, state.eqState.bands);
-        broadcastEqMessage({ type: 'EQ_SET_BAND', band: 'low', gainDb: preset.low });
-        broadcastEqMessage({ type: 'EQ_SET_BAND', band: 'mid', gainDb: preset.mid });
-        broadcastEqMessage({ type: 'EQ_SET_BAND', band: 'high', gainDb: preset.high });
+        EQ_BAND_KEYS.forEach((key) => {
+          broadcastEqMessage({ type: 'EQ_SET_BAND', band: key, gainDb: state.eqState.bands[key] });
+        });
       } else {
         LOG('⚠️ Preset not found:', msg.preset);
+        state.eqState.currentPreset = 'flat';
       }
       persistSettings();
       broadcast();
@@ -773,11 +873,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       break;
 
     case 'EQ_SET_BAND':
-      const band = msg.band; // 'low' | 'mid' | 'high'
-      const value = msg.value; // dB value
+      const band = msg.band;
+      const value = Number(msg.value); // dB value
       if (state.eqState.bands.hasOwnProperty(band)) {
-        state.eqState.bands[band] = value;
-        broadcastEqMessage({ type: 'EQ_SET_BAND', band, gainDb: value });
+        state.eqState.bands[band] = Number.isFinite(value) ? value : 0;
+        state.eqState.currentPreset = 'custom';
+        broadcastEqMessage({ type: 'EQ_SET_BAND', band, gainDb: state.eqState.bands[band] });
         persistSettings();
         broadcast();
       }

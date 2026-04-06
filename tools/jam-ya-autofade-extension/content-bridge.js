@@ -34,13 +34,42 @@ function injectAudioProcessor() {
   window.JEMYA_EQ_INJECTED = true;
 }
 
+function postEqToPage(msg) {
+  window.postMessage(msg, '*');
+}
+
+async function hydrateEqState() {
+  try {
+    const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+    if (!state) return;
+
+    postEqToPage({ type: 'JEMYA_EQ_INIT' });
+    postEqToPage({ type: 'JEMYA_EQ_ENABLE', enabled: !!state.eqEnabled });
+
+    const bands = state.eqState?.bands || {};
+    const keys = ['hz32', 'hz64', 'hz125', 'hz250', 'hz500', 'hz1000', 'hz2000', 'hz4000', 'hz8000', 'hz16000'];
+    keys.forEach((band) => {
+      postEqToPage({ type: 'JEMYA_EQ_SET_BAND', band, gainDb: Number(bands[band] ?? 0) });
+    });
+  } catch (e) {
+    console.warn('[Jemya/bridge] EQ hydrate failed:', e?.message);
+  }
+}
+
 // Inject as soon as possible
 if (document.head || document.documentElement) {
   injectAudioProcessor();
+  setTimeout(hydrateEqState, 250);
 } else {
-  document.addEventListener('DOMContentLoaded', injectAudioProcessor);
+  document.addEventListener('DOMContentLoaded', () => {
+    injectAudioProcessor();
+    setTimeout(hydrateEqState, 250);
+  });
   // Fallback: inject after a short delay
-  setTimeout(injectAudioProcessor, 100);
+  setTimeout(() => {
+    injectAudioProcessor();
+    setTimeout(hydrateEqState, 250);
+  }, 100);
 }
 
 // ── Message relay: background → page world ───────────────────────────────────
@@ -48,11 +77,10 @@ if (document.head || document.documentElement) {
 chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
   // Forward EQ messages to the page world via postMessage
   if (msg.type && msg.type.startsWith('EQ_')) {
-    const pageMsg = {
+    postEqToPage({
       type: 'JEMYA_EQ_' + msg.type,
       ...msg,
-    };
-    window.postMessage(pageMsg, '*');
+    });
   }
 });
 

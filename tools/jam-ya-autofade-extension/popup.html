@@ -555,7 +555,7 @@
 
     /* EQ Controls */
     .eq-preset-group {
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
     .eq-preset-select {
       width: 100%;
@@ -572,63 +572,113 @@
     }
     .eq-preset-select:focus { border-color: #3B7EA5; }
     .eq-preset-select option { background: #1a1a1a; color: #ccc; }
-    .eq-band {
-      margin-bottom: 12px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+
+    .eq-board {
+      margin-top: 8px;
+      padding: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
     }
-    .eq-band:last-child {
-      border-bottom: none;
-      margin-bottom: 0;
-      padding-bottom: 0;
+    .eq-bands-grid {
+      display: grid;
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+      gap: 4px;
+      align-items: end;
+      background: transparent;
     }
-    .eq-band-label {
+    .eq-band-col {
       display: flex;
-      justify-content: space-between;
+      flex-direction: column;
       align-items: center;
-      margin-bottom: 6px;
-      font-size: 11px;
-      font-weight: 500;
+      gap: 3px;
+      min-width: 0;
+      position: relative;
     }
-    .eq-band-name {
-      color: #ccc;
+    .eq-band-col::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 12px;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 128px;
+      border-radius: 2px;
+      background: rgba(59,126,165,0.3);
+      pointer-events: none;
+      z-index: 0;
     }
     .eq-band-value {
-      color: #3B7EA5;
-      font-weight: 600;
-      font-size: 12px;
+      font-size: 9px;
+      color: #7fb7d8;
+      line-height: 1;
+      text-align: center;
     }
     .eq-band-slider {
-      width: 100%;
-      height: 3px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 2px;
-      outline: none;
       -webkit-appearance: none;
       appearance: none;
+      writing-mode: vertical-lr;
+      direction: rtl;
+      flex: none;
+      width: auto;
+      height: auto;
+      inline-size: 128px;
+      block-size: 14px;
+      min-inline-size: 128px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      cursor: pointer;
+      margin: 0;
+      position: relative;
+      z-index: 1;
+    }
+    .eq-band-slider::-moz-focus-outer {
+      border: 0;
+    }
+    .eq-band-slider::-webkit-slider-runnable-track {
+      width: 4px;
+      height: 100%;
+      border-radius: 2px;
+      background: transparent;
     }
     .eq-band-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 12px; height: 12px;
-      background: #3B7EA5;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
-      cursor: pointer;
-      transition: background 0.15s;
+      background: #3B7EA5;
+      border: none;
+      margin-left: -5px;
+      margin-top: 0;
     }
-    .eq-band-slider::-webkit-slider-thumb:hover {
-      background: #4a94bf;
+    .eq-band-slider::-moz-range-track {
+      width: 4px;
+      height: 100%;
+      border-radius: 2px;
+      background: transparent;
+    }
+    .eq-band-slider::-moz-range-progress {
+      background: transparent;
+      width: 4px;
+      border-radius: 2px;
     }
     .eq-band-slider::-moz-range-thumb {
-      width: 12px; height: 12px;
-      background: #3B7EA5;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
-      cursor: pointer;
+      background: #3B7EA5;
       border: none;
-      transition: background 0.15s;
     }
-    .eq-band-slider::-moz-range-thumb:hover {
-      background: #4a94bf;
+    .eq-band-label {
+      font-size: 9px;
+      color: #8d8d8d;
+      letter-spacing: 0.02em;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap;
     }
   </style>
 </head>
@@ -691,8 +741,8 @@
   <div class="card">
     <div class="tab-nav">
       <button class="tab-btn active" data-tab="autofade">Auto Fade</button>
-      <button class="tab-btn" data-tab="connection">Connection</button>
       <button class="tab-btn" data-tab="eq">EQ</button>
+      <button class="tab-btn" data-tab="connection">Connection</button>
     </div>
 
     <!-- Auto Fade Tab -->
@@ -747,6 +797,93 @@
       <button class="test-fade-btn" id="testFadeBtn">Test fade</button>
     </div>
 
+    <!-- EQ Tab -->
+    <div class="tab-content" id="tab-eq">
+      <div class="setting-row">
+        <span class="setting-label">Enable EQ</span>
+        <div class="toggle-switch" id="enableEqToggle"></div>
+      </div>
+
+      <div id="eqControls" style="display:none;">
+        <div class="eq-preset-group">
+          <div class="setting-label">Preset</div>
+          <select class="eq-preset-select" id="eqPresetSelect">
+            <option value="flat">Flat</option>
+            <option value="acoustic">Acoustic</option>
+            <option value="bass-boost">Bass Boost</option>
+            <option value="treble-booster">Treble Booster</option>
+            <option value="vocal-booster">Vocal Booster</option>
+            <option value="dance">Dance</option>
+            <option value="electronic">Electronic</option>
+            <option value="hiphop">Hip Hop</option>
+            <option value="jazz">Jazz</option>
+            <option value="pop">Pop</option>
+            <option value="rock">Rock</option>
+            <option value="classical">Classical</option>
+            <option value="vocal">Vocal</option>
+            <option value="warm">Warm</option>
+            <option value="bright">Bright</option>
+            <option value="custom" disabled>Custom</option>
+          </select>
+        </div>
+
+        <div class="eq-board">
+          <div class="eq-bands-grid" id="eqBandsGrid">
+            <div class="eq-band-col">
+              <span class="eq-band-label">32</span>
+              <input type="range" class="eq-band-slider" data-band="hz32" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz32">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">64</span>
+              <input type="range" class="eq-band-slider" data-band="hz64" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz64">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">125</span>
+              <input type="range" class="eq-band-slider" data-band="hz125" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz125">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">250</span>
+              <input type="range" class="eq-band-slider" data-band="hz250" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz250">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">500</span>
+              <input type="range" class="eq-band-slider" data-band="hz500" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz500">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">1k</span>
+              <input type="range" class="eq-band-slider" data-band="hz1000" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz1000">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">2k</span>
+              <input type="range" class="eq-band-slider" data-band="hz2000" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz2000">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">4k</span>
+              <input type="range" class="eq-band-slider" data-band="hz4000" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz4000">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">8k</span>
+              <input type="range" class="eq-band-slider" data-band="hz8000" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz8000">0</span>
+            </div>
+            <div class="eq-band-col">
+              <span class="eq-band-label">16k</span>
+              <input type="range" class="eq-band-slider" data-band="hz16000" min="-24" max="24" step="1" value="0">
+              <span class="eq-band-value" id="eqValHz16000">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection Tab -->
     <div class="tab-content" id="tab-connection">
       <div class="auth-row">
@@ -775,52 +912,6 @@
       </div>
 
       <div id="connectErrorMsg"></div>
-    </div>
-
-    <!-- EQ Tab -->
-    <div class="tab-content" id="tab-eq">
-      <div class="setting-row">
-        <span class="setting-label">Enable EQ</span>
-        <div class="toggle-switch" id="enableEqToggle"></div>
-      </div>
-
-      <div id="eqControls" style="display:none;">
-        <div class="eq-preset-group">
-          <div class="setting-label">Preset</div>
-          <select class="eq-preset-select" id="eqPresetSelect">
-            <option value="flat">Flat</option>
-            <option value="bass-boost">Bass Boost</option>
-            <option value="vocal">Vocal</option>
-            <option value="treble">Treble</option>
-            <option value="warm">Warm</option>
-            <option value="bright">Bright</option>
-          </select>
-        </div>
-
-        <div class="eq-band">
-          <div class="eq-band-label">
-            <span class="eq-band-name">Low (125 Hz)</span>
-            <span class="eq-band-value" id="eqLowValue">0 dB</span>
-          </div>
-          <input type="range" class="eq-band-slider" id="eqLowSlider" min="-12" max="12" step="1" value="0">
-        </div>
-
-        <div class="eq-band">
-          <div class="eq-band-label">
-            <span class="eq-band-name">Mid (1 kHz)</span>
-            <span class="eq-band-value" id="eqMidValue">0 dB</span>
-          </div>
-          <input type="range" class="eq-band-slider" id="eqMidSlider" min="-12" max="12" step="1" value="0">
-        </div>
-
-        <div class="eq-band">
-          <div class="eq-band-label">
-            <span class="eq-band-name">High (8 kHz)</span>
-            <span class="eq-band-value" id="eqHighValue">0 dB</span>
-          </div>
-          <input type="range" class="eq-band-slider" id="eqHighSlider" min="-12" max="12" step="1" value="0">
-        </div>
-      </div>
     </div>
   </div>
 

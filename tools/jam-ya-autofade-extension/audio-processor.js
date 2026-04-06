@@ -1,199 +1,165 @@
 /**
  * audio-processor.js — Runs in page context on open.spotify.com
  *
- * Creates Web Audio API AudioContext and connects Spotify's audio through
- * a 3-band parametric EQ (Low 125Hz, Mid 1kHz, High 8kHz).
- *
- * Injected by content-bridge.js into the page world to bypass CSP restrictions.
+ * Creates a true dry/wet Web Audio EQ routing:
+ * source -> dry -> destination
+ * source -> 10-band filter chain -> wet -> destination
  */
 
 let audioContext = null;
 let sourceNode = null;
-let eqFilters = null;
+let audioElRef = null;
 let eqEnabled = false;
-let gainNodes = {};
+let connected = false;
 
-class AudioEQ {
-  constructor() {
-    this.connected = false;
-    this.eqBands = {
-      low: { freq: 125, gain: 0, q: 0.7 },
-      mid: { freq: 1000, gain: 0, q: 0.7 },
-      high: { freq: 8000, gain: 0, q: 0.7 },
-    };
+let inputGain = null;
+let dryGain = null;
+let wetGain = null;
+const BAND_DEFS = [
+  { key: 'hz32', freq: 32, type: 'lowshelf', q: 0.7 },
+  { key: 'hz64', freq: 64, type: 'peaking', q: 0.9 },
+  { key: 'hz125', freq: 125, type: 'peaking', q: 0.9 },
+  { key: 'hz250', freq: 250, type: 'peaking', q: 0.9 },
+  { key: 'hz500', freq: 500, type: 'peaking', q: 0.9 },
+  { key: 'hz1000', freq: 1000, type: 'peaking', q: 0.9 },
+  { key: 'hz2000', freq: 2000, type: 'peaking', q: 0.9 },
+  { key: 'hz4000', freq: 4000, type: 'peaking', q: 0.9 },
+  { key: 'hz8000', freq: 8000, type: 'peaking', q: 0.9 },
+  { key: 'hz16000', freq: 16000, type: 'highshelf', q: 0.7 },
+];
+
+const filtersByBand = {};
+
+function getAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    console.log('[Jemya/EQ] AudioContext created:', audioContext.state);
   }
+  return audioContext;
+}
 
-  init() {
-    try {
-      // Get or create AudioContext
-      if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        console.log('[Jemya/EQ] 🎵 AudioContext created:', audioContext.state);
-      }
-
-      // Find Spotify's audio element
-      const audioEl = document.querySelector('audio');
-      if (!audioEl) {
-        console.warn('[Jemya/EQ] ⚠️ No audio element found');
-        setTimeout(() => this.init(), 1000); // Retry
-        return;
-      }
-
-      // Resume audio context if suspended
-      if (audioContext.state === 'suspended') {
-        audioContext.resume().then(() => {
-          console.log('[Jemya/EQ] ▶️ AudioContext resumed');
-        });
-      }
-
-      // Create source from audio element (only once)
-      if (!sourceNode) {
-        sourceNode = audioContext.createMediaElementAudioSource(audioEl);
-        console.log('[Jemya/EQ] 🔗 MediaElementAudioSource created');
-      }
-
-      // Build EQ filter chain if not already done
-      if (!eqFilters) {
-        this.buildFilterChain();
-      }
-
-      this.connected = true;
-      console.log('[Jemya/EQ] ✅ Audio processor initialized');
-    } catch (e) {
-      console.error('[Jemya/EQ] ❌ Init failed:', e.message);
-      setTimeout(() => this.init(), 2000);
-    }
-  }
-
-  buildFilterChain() {
-    if (!audioContext || !sourceNode) return;
-
-    const dst = audioContext.destination;
-    gainNodes = {};
-
-    // Create 3 parallel gain nodes for the three EQ bands
-    // Source → [Low Band + Mid Band + High Band] → Destination
-    // Each band: gain (for 0dB unity) → biquad filter → master gain
-
-    // Low band (125 Hz, peaking)
-    gainNodes.lowInput = audioContext.createGain();
-    const lowFilter = audioContext.createBiquadFilter();
-    lowFilter.type = 'peaking';
-    lowFilter.frequency.value = this.eqBands.low.freq;
-    lowFilter.Q.value = this.eqBands.low.q;
-    lowFilter.gain.value = 0;
-    gainNodes.lowGain = audioContext.createGain();
-    gainNodes.lowGain.gain.value = 1;
-
-    sourceNode.connect(gainNodes.lowInput);
-    gainNodes.lowInput.connect(lowFilter);
-    lowFilter.connect(gainNodes.lowGain);
-    gainNodes.lowGain.connect(dst);
-
-    // Mid band (1 kHz, peaking)
-    gainNodes.midInput = audioContext.createGain();
-    const midFilter = audioContext.createBiquadFilter();
-    midFilter.type = 'peaking';
-    midFilter.frequency.value = this.eqBands.mid.freq;
-    midFilter.Q.value = this.eqBands.mid.q;
-    midFilter.gain.value = 0;
-    gainNodes.midGain = audioContext.createGain();
-    gainNodes.midGain.gain.value = 1;
-
-    sourceNode.connect(gainNodes.midInput);
-    gainNodes.midInput.connect(midFilter);
-    midFilter.connect(gainNodes.midGain);
-    gainNodes.midGain.connect(dst);
-
-    // High band (8 kHz, peaking)
-    gainNodes.highInput = audioContext.createGain();
-    const highFilter = audioContext.createBiquadFilter();
-    highFilter.type = 'peaking';
-    highFilter.frequency.value = this.eqBands.high.freq;
-    highFilter.Q.value = this.eqBands.high.q;
-    highFilter.gain.value = 0;
-    gainNodes.highGain = audioContext.createGain();
-    gainNodes.highGain.gain.value = 1;
-
-    sourceNode.connect(gainNodes.highInput);
-    gainNodes.highInput.connect(highFilter);
-    highFilter.connect(gainNodes.highGain);
-    gainNodes.highGain.connect(dst);
-
-    eqFilters = { lowFilter, midFilter, highFilter };
-    console.log('[Jemya/EQ] 🎚️ 3-band EQ filter chain built');
-  }
-
-  setBand(band, gainDb) {
-    if (!eqFilters || !eqFilters[`${band}Filter`]) {
-      console.warn(`[Jemya/EQ] ⚠️ Filter not ready for band: ${band}`);
-      return;
-    }
-
-    const filter = eqFilters[`${band}Filter`];
-    filter.gain.setValueAtTime(gainDb, audioContext.currentTime);
-    console.log(`[Jemya/EQ] 🎚️ Set ${band} to ${gainDb} dB`);
-  }
-
-  enable(enabled) {
-    eqEnabled = enabled;
-    if (!sourceNode) return;
-
-    if (enabled && !this.connected) {
-      // Rebuild chain if needed
-      if (eqFilters) {
-        console.log('[Jemya/EQ] ✅ EQ enabled');
-      }
-    } else if (!enabled && this.connected) {
-      console.log('[Jemya/EQ] ❌ EQ disabled');
-    }
+function tryResumeContext() {
+  const ctx = getAudioContext();
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
   }
 }
 
-// ── Initialization ────────────────────────────────────────────────────────────
+function ensureGraph() {
+  if (!sourceNode || connected) return;
 
-const eq = new AudioEQ();
+  const ctx = getAudioContext();
+  inputGain = ctx.createGain();
+  dryGain = ctx.createGain();
+  wetGain = ctx.createGain();
 
-// Try to initialize when DOM is ready
-if (document.body) {
-  eq.init();
-} else {
-  document.addEventListener('DOMContentLoaded', () => eq.init());
+  BAND_DEFS.forEach((band) => {
+    const filter = ctx.createBiquadFilter();
+    filter.type = band.type;
+    filter.frequency.value = band.freq;
+    if (band.type === 'peaking') {
+      filter.Q.value = band.q;
+    }
+    filter.gain.value = 0;
+    filtersByBand[band.key] = filter;
+  });
+
+  sourceNode.connect(inputGain);
+
+  inputGain.connect(dryGain);
+  dryGain.connect(ctx.destination);
+
+  let prev = inputGain;
+  BAND_DEFS.forEach((band) => {
+    const filter = filtersByBand[band.key];
+    prev.connect(filter);
+    prev = filter;
+  });
+  prev.connect(wetGain);
+  wetGain.connect(ctx.destination);
+
+  connected = true;
+  applyBypass();
+  console.log('[Jemya/EQ] EQ graph connected');
 }
 
-// Also try on a delay in case rapid init is needed
-setTimeout(() => {
-  if (!eq.connected) eq.init();
-}, 500);
+function applyBypass() {
+  if (!dryGain || !wetGain || !audioContext) return;
+  const t = audioContext.currentTime;
+  dryGain.gain.setValueAtTime(eqEnabled ? 0 : 1, t);
+  wetGain.gain.setValueAtTime(eqEnabled ? 1 : 0, t);
+}
 
-// ── Message handling from content script ──────────────────────────────────────
+function initWithAudioElement() {
+  tryResumeContext();
+
+  const el = document.querySelector('audio');
+  if (!el) {
+    console.log('[Jemya/EQ] Waiting for audio element');
+    return false;
+  }
+
+  if (!sourceNode || audioElRef !== el) {
+    audioElRef = el;
+    sourceNode = getAudioContext().createMediaElementAudioSource(el);
+    connected = false;
+    console.log('[Jemya/EQ] MediaElementAudioSource created');
+  }
+
+  ensureGraph();
+  return true;
+}
+
+function setBand(band, gainDb) {
+  const gain = Math.max(-24, Math.min(24, Number(gainDb)));
+  if (!Number.isFinite(gain)) return;
+  const filter = filtersByBand[band];
+  if (!filter || !audioContext) return;
+  filter.gain.setValueAtTime(gain, audioContext.currentTime);
+}
+
+function setEnabled(enabled) {
+  eqEnabled = !!enabled;
+  applyBypass();
+  console.log('[Jemya/EQ] Enabled:', eqEnabled);
+}
+
+function startInitLoop() {
+  if (initWithAudioElement()) return;
+  const timer = setInterval(() => {
+    if (initWithAudioElement()) {
+      clearInterval(timer);
+    }
+  }, 1000);
+}
+
+function bindUserGestureResume() {
+  const onGesture = () => tryResumeContext();
+  window.addEventListener('click', onGesture, { passive: true });
+  window.addEventListener('keydown', onGesture, { passive: true });
+}
 
 window.addEventListener('message', (event) => {
-  // Only accept messages from ourselves
   if (event.source !== window) return;
-
   const msg = event.data;
-  if (!msg.type || !msg.type.startsWith('JEMYA_EQ_')) return;
+  if (!msg || typeof msg.type !== 'string' || !msg.type.startsWith('JEMYA_EQ_')) return;
+
+  if (!sourceNode) initWithAudioElement();
 
   switch (msg.type) {
     case 'JEMYA_EQ_INIT':
-      console.log('[Jemya/EQ] Init message received');
-      if (!eq.connected) eq.init();
+      initWithAudioElement();
       break;
-
-    case 'JEMYA_EQ_SET_BAND':
-      eq.setBand(msg.band, msg.gainDb);
-      break;
-
     case 'JEMYA_EQ_ENABLE':
-      eq.enable(msg.enabled);
+      setEnabled(msg.enabled);
       break;
-
-    case 'JEMYA_EQ_SET_PRESET':
-      console.log('[Jemya/EQ] Preset changed:', msg.preset);
-      // Preset values will be set via individual JEMYA_EQ_SET_BAND messages
+    case 'JEMYA_EQ_SET_BAND':
+      setBand(msg.band, msg.gainDb);
       break;
   }
 });
 
-console.log('[Jemya/EQ] 🎵 Audio processor script loaded and listening');
+bindUserGestureResume();
+startInitLoop();
+
+console.log('[Jemya/EQ] Processor loaded');
